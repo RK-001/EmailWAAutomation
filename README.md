@@ -109,6 +109,7 @@ Important:
 Just like with the Google Drive setup, these provided instructions cover the basics but leave out a few crucial operational steps—especially around how WhatsApp Business API templates actually work in practice.
 
 Here is the redrafted, step-by-step guide to setting up AiSensy, filling in the gaps so you don’t run into template rejections or formatting errors.
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMWU5YzM2NDJlY2FlMWE2YzI5ODE0MiIsIm5hbWUiOiJHSyA5NjgyIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjZhMWU5YzM2NDJlY2FlMWE2YzI5ODEzYyIsImFjdGl2ZVBsYW4iOiJGUkVFX0ZPUkVWRVIiLCJpYXQiOjE3ODAzOTA5NjZ9.lo-QCxoHpvXa7b6nFACgj7HYDkuZHe5uO6Zp1LyikI0
 
 ### **Phase 1: Secure Your API Key**
 
