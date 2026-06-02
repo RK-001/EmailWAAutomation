@@ -1,0 +1,76 @@
+﻿# -*- mode: python ; coding: utf-8 -*-
+# NoticeAutomation.spec — PyInstaller build spec
+# Build: pyinstaller NoticeAutomation.spec --noconfirm --clean
+
+import os
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+SPEC_DIR = os.path.abspath(os.path.dirname(SPEC))
+MAIN_PY  = os.path.join(SPEC_DIR, "main.py")
+
+# Hidden imports — only those PyInstaller cannot auto-detect
+hidden_imports = [
+    # pywin32 COM (loaded dynamically via Dispatch)
+    "win32com.client", "pythoncom", "pywintypes", "win32api",
+    # google-api-python-client (discovery loaded at runtime)
+    "googleapiclient.discovery", "googleapiclient.http",
+    "google.auth.transport.requests", "google.oauth2.service_account",
+    "google_auth_httplib2",
+    # PIL loaded by customtkinter
+    "PIL._tkinter_finder",
+] + collect_submodules("customtkinter")
+
+# Data files — themes, CA certs, templates, and factory config.
+# Google discovery docs are intentionally not bundled; Drive uses runtime
+# discovery with static_discovery=False to keep the desktop package smaller.
+datas = (
+    collect_data_files("customtkinter")
+    + collect_data_files("certifi")
+    + [
+        (os.path.join(SPEC_DIR, "templates"), "templates"),
+        (os.path.join(SPEC_DIR, "config.json"), "."),
+    ]
+)
+
+a = Analysis(
+    [MAIN_PY],
+    pathex=[SPEC_DIR],
+    datas=datas,
+    hiddenimports=hidden_imports,
+    excludes=[
+        "pytest", "unittest", "pdb", "pydoc",
+        "matplotlib", "numpy", "pandas", "scipy", "torch", "tensorflow",
+        # Optional GUI/dev modules that pywin32/Pillow hooks can pull in.
+        "Pythonwin", "win32ui",
+        "PIL._avif", "PIL.AvifImagePlugin",
+        "PIL._webp", "PIL.WebPImagePlugin",
+        "PIL.ImageQt", "PIL.ImageTk",
+        "lxml.objectify", "lxml.html", "lxml.html.diff",
+        "lxml.html._difflib", "lxml.isoschematron", "lxml.sax",
+    ],
+    noarchive=False,
+)
+
+a.datas = [
+    item for item in a.datas
+    if "googleapiclient\\discovery_cache\\documents" not in item[0].replace("/", "\\")
+]
+
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz, a.scripts, [],
+    exclude_binaries=True,
+    name="NoticeAutomation",
+    debug=False,
+    upx=True,
+    console=False,
+    icon=os.path.join(SPEC_DIR, "icon.ico") if os.path.exists(
+        os.path.join(SPEC_DIR, "icon.ico")) else None,
+)
+
+coll = COLLECT(
+    exe, a.binaries, a.zipfiles, a.datas,
+    upx=True,
+    name="NoticeAutomation",
+)

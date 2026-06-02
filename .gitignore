@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+build/
+dist/
+logs/
+output/
+
+config.json.bak
+*.tmp
+
+drive_credentials.json

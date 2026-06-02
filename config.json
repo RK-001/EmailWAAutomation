@@ -1,0 +1,80 @@
+{
+  "_comment": "BulkNoticeAutomation config. Keep credentials empty in source copies.",
+  "gmail": {
+    "sender_email": "",
+    "app_password": ""
+  },
+  "aisensy": {
+    "api_key": "",
+    "template_name": "legal_notice_notification",
+    "mock_mode": true
+  },
+  "google_drive": {
+    "service_account_json_path": "drive_credentials.json",
+    "upload_folder_id": "",
+    "auto_delete_days": 30,
+    "mock_mode": true
+  },
+  "profiles": {
+    "Sample_Profile": {
+      "display_name": "Sample Profile (Demo)",
+      "template_path": "templates/sample_notice.docx",
+      "notice_type": "EMI_DEFAULT",
+      "email_subject": "Important Communication - {NAME}",
+      "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {ACCOUNTNO}.\n\nFor any queries, please contact us at the number below.\n\nRegards,\nGK Associates",
+      "wa_template_params": [
+        "NAME",
+        "ACCOUNTNO",
+        "drive_link",
+        "OFFICER_NO"
+      ],
+      "column_mapping": {
+        "NAME": "NAME",
+        "EMAILID": "EMAILID",
+        "MOBILENO": "MOBILENO",
+        "AMOUNT": "AMOUNT",
+        "ACCOUNTNO": "ACCOUNTNO",
+        "OFFICER_NO": "OFFICER_NO",
+        "CHEQUE_DATE": "CHEQUE_DATE",
+        "REASON": "REASON",
+        "BRANCH": "BRANCH"
+      }
+    },
+    "HDFC_PSS_Notice": {
+      "display_name": "HDFC PSS Notice",
+      "template_path": "templates/hdfc_pss_notice.docx",
+      "notice_type": "PRE_LITIGATION",
+      "email_subject": "Important Communication - {NAME}",
+      "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {ACCOUNTNO}.\n\nRegards,\nGK Associates",
+      "wa_template_params": [
+        "NAME",
+        "ACCOUNTNO",
+        "drive_link",
+        "OFFICER_NO"
+      ],
+      "column_mapping": {
+        "NAME": "NAME",
+        "EMAILID": "EMAIL ID",
+        "MOBILENO": "MOBILENO",
+        "ACCOUNTNO": "ACCOUNT NO",
+        "MASKED_CARD": "MASKED CARD #",
+        "AAN": "AAN",
+        "BOUNCE_AMOUNT": "Loan Amount / BOUNCE AMOUNT",
+        "BOUNCE_REASON": "Product / BOUNCE REASON",
+        "BOUNCE_DATE": "Claim Date / Bounce Date",
+        "OFFICER_NO": "OFFICER NO"
+      }
+    }
+  },
+  "settings": {
+    "output_folder": "./output",
+    "log_folder": "./logs",
+    "batch_restart_every": 50,
+    "send_delay_min_sec": 3,
+    "send_delay_max_sec": 5,
+    "max_emails_per_day": 450,
+    "drive_cleanup_enabled": true,
+    "lawyer_name": "",
+    "firm_name": ""
+  }
+}
