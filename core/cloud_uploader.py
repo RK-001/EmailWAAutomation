@@ -202,7 +202,7 @@ class DriveUploader:
 
         if creds and creds.expired and creds.refresh_token:
             try:
-                creds.refresh(Request())
+                creds.refresh(Request(session=self._build_requests_session()))
                 self._save_oauth_token(creds)
             except RefreshError as exc:
                 creds = None
@@ -218,7 +218,12 @@ class DriveUploader:
                     "Google Drive OAuth is not authorized on this machine. "
                     "Open Setup and run Authorize / Test Drive once before generating a batch."
                 )
-            creds = self._run_oauth_authorization()
+            try:
+                creds = self._run_oauth_authorization()
+            except Exception as exc:
+                raise RuntimeError(
+                    self._friendly_google_error(exc, "Google Drive OAuth authorization failed")
+                ) from exc
 
         return self._build_service_from_credentials(creds)
 
@@ -236,9 +241,23 @@ class DriveUploader:
             self._oauth_client_path,
             _DRIVE_SCOPES,
         )
+        ca_bundle = get_merged_ca_bundle_path()
+        if ca_bundle:
+            flow.oauth2session.verify = ca_bundle
         creds = flow.run_local_server(port=0)
         self._save_oauth_token(creds)
         return creds
+
+    @staticmethod
+    def _build_requests_session():
+        """Create a requests session using the merged Windows/certifi CA bundle."""
+        import requests
+
+        session = requests.Session()
+        ca_bundle = get_merged_ca_bundle_path()
+        if ca_bundle:
+            session.verify = ca_bundle
+        return session
 
     def _save_oauth_token(self, creds) -> None:
         """Persist OAuth token JSON beside the app/config."""

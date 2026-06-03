@@ -14,11 +14,17 @@ hidden_imports = [
     "win32com.client", "pythoncom", "pywintypes", "win32api",
     # google-api-python-client (discovery loaded at runtime)
     "googleapiclient.discovery", "googleapiclient.http",
-    "google.oauth2.service_account",
+    "google.oauth2.service_account", "google.oauth2.credentials",
+    "google.auth.transport.requests", "google.auth.exceptions",
     "google_auth_httplib2",
+    # OAuth user login for personal Google Drive accounts
+    "google_auth_oauthlib.flow",
     # PIL loaded by customtkinter
     "PIL._tkinter_finder",
-] + collect_submodules("customtkinter")
+] + collect_submodules("customtkinter") \
+  + collect_submodules("google_auth_oauthlib") \
+  + collect_submodules("requests_oauthlib") \
+  + collect_submodules("oauthlib")
 
 # Data files — themes, CA certs, templates, and factory config.
 # Google discovery docs are intentionally not bundled; Drive uses runtime

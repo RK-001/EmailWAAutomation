@@ -40,7 +40,17 @@ for /f "tokens=*" %%v in ('py -3 -m PyInstaller --version') do echo PyInstaller:
 
 :: ── Clean previous build ──────────────────────────────────────────────────────
 echo.
-echo [1/4] Cleaning previous build artefacts...
+echo [1/5] Checking Python package dependencies...
+py -3 -c "import customtkinter, openpyxl, docxtpl, win32com.client, googleapiclient.discovery, google_auth_httplib2, google_auth_oauthlib.flow" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Required Python packages are missing.
+    echo         Run: py -3 -m pip install -r requirements.txt
+    exit /b 1
+)
+echo       Dependencies OK.
+
+echo.
+echo [2/5] Cleaning previous build artefacts...
 if exist "build\NoticeAutomation" (
     rmdir /s /q "build\NoticeAutomation"
     echo       Removed build\NoticeAutomation
@@ -52,7 +62,7 @@ if exist "dist\NoticeAutomation" (
 
 :: ── Ensure output and logs folders exist (bundled in the install) ─────────────
 echo.
-echo [2/4] Ensuring runtime folders exist...
+echo [3/5] Ensuring runtime folders exist...
 if not exist "output" mkdir output
 if not exist "logs"   mkdir logs
 if not exist "templates" mkdir templates
@@ -60,7 +70,7 @@ echo       Done.
 
 :: ── Run PyInstaller ───────────────────────────────────────────────────────────
 echo.
-echo [3/4] Running PyInstaller...
+echo [4/5] Running PyInstaller...
 echo.
 set PYTHONUTF8=1
 py -3 -m PyInstaller NoticeAutomation.spec --noconfirm --clean
@@ -72,7 +82,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 :: ── Post-build: copy extra runtime files ─────────────────────────────────────
 echo.
-echo [4/4] Copying runtime assets to dist\NoticeAutomation\ ...
+echo [5/5] Copying runtime assets to dist\NoticeAutomation\ ...
 
 :: Blank output + logs folders next to the exe (not in _internal\)
 :: These are user-facing write-able directories.
