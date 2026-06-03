@@ -1,146 +1,154 @@
 """
 core/excel_reader.py
 --------------------
-Read an Excel (.xlsx) file and return a list of row dicts.
+Read an Excel (.xlsx) file and return a list of row dictionaries.
 
 Features:
-  - First row is treated as headers (column names become dict keys)
-  - Empty cells → None (caller should use sanitizer.sanitize_context)
-  - datetime cells → formatted string "DD/MM/YYYY"
-  - Numeric cells → str (trailing .0 removed for integers)
-  - Applies column mapping from profile to rename columns
-  - Validates that required columns are present
+  - First row is treated as headers
+  - Empty cells become None
+  - Date cells become DD/MM/YYYY
+  - Whole-number floats become integer strings
+  - Profile column mapping renames Excel headers to template/app fields
+  - Duplicate headers are rejected because they make mapping ambiguous
 """
 
-from datetime import datetime, date
+from datetime import date, datetime
 
 import openpyxl
 
 
 def _format_cell_value(value) -> str | None:
-    """
-    Convert an openpyxl cell value to a clean string.
-
-    - datetime/date  → "DD/MM/YYYY"
-    - int/float      → str without trailing ".0"
-    - str            → stripped
-    - None           → None
-    """
+    """Convert an openpyxl cell value to a clean string or None."""
     if value is None:
         return None
     if isinstance(value, (datetime, date)):
         return value.strftime("%d/%m/%Y")
     if isinstance(value, float):
-        # Remove ".0" for whole numbers (e.g., 9876543210.0 → "9876543210")
         if value.is_integer():
             return str(int(value))
         return str(value)
     if isinstance(value, int):
         return str(value)
     if isinstance(value, str):
-        return value.strip() or None   # Empty strings → None
+        return value.strip() or None
     return str(value)
+
+
+def _clean_headers(raw_headers) -> list[str]:
+    return [
+        str(header).strip() if header is not None else f"_col_{index}"
+        for index, header in enumerate(raw_headers)
+    ]
+
+
+def _duplicate_headers(headers: list[str]) -> list[str]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for header in headers:
+        if header.startswith("_col_"):
+            continue
+        if header in seen and header not in duplicates:
+            duplicates.append(header)
+        seen.add(header)
+    return duplicates
+
+
+def _raise_duplicate_headers(headers: list[str]) -> None:
+    duplicates = _duplicate_headers(headers)
+    if duplicates:
+        raise ValueError(
+            "Excel file has duplicate column headers: "
+            + ", ".join(duplicates)
+            + ". Rename duplicate columns before loading this file."
+        )
 
 
 def read_excel(
     excel_path: str,
     column_mapping: dict | None = None,
+    required_fields: list[str] | None = None,
     sheet_name: str | None = None,
 ) -> list[dict]:
     """
-    Read an Excel file and return rows as a list of dicts.
+    Read an Excel file and return rows as dictionaries.
 
     Args:
-        excel_path:     Full path to the .xlsx file.
-        column_mapping: Optional dict {standard_key: excel_column_header}.
-                        e.g. {"NAME": "Customer Name", "MOBILENO": "Mobile"}
-                        If provided, output dicts use the standard keys.
-                        If None, output dicts use the raw header row values.
-        sheet_name:     Sheet to read. If None, reads the active (first) sheet.
-
-    Returns:
-        List of row dicts. Keys are either mapped (if column_mapping provided)
-        or raw header names. Values are strings (or None for empty cells).
-
-    Raises:
-        FileNotFoundError: If the Excel file does not exist.
-        ValueError:        If the file has no header row or required columns missing.
+        excel_path: Full path to the .xlsx file.
+        column_mapping: Optional {output_key: excel_column_header} map.
+        required_fields: Output keys whose mapped Excel columns must exist.
+        sheet_name: Sheet to read. If None, reads the active sheet.
     """
     if not excel_path:
         raise ValueError("Excel path cannot be empty.")
 
-    wb = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
-    ws = wb[sheet_name] if sheet_name else wb.active
-
-    rows_iter = ws.iter_rows(values_only=True)
-
-    # Read header row
+    wb = None
     try:
-        raw_headers = next(rows_iter)
-    except StopIteration:
-        raise ValueError("Excel file is empty — no header row found.")
+        wb = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
+        ws = wb[sheet_name] if sheet_name else wb.active
+        rows_iter = ws.iter_rows(values_only=True)
 
-    # Clean headers: strip whitespace, remove None entries
-    headers = [str(h).strip() if h is not None else f"_col_{i}" for i, h in enumerate(raw_headers)]
+        try:
+            raw_headers = next(rows_iter)
+        except StopIteration:
+            raise ValueError("Excel file is empty - no header row found.")
 
-    if not any(h for h in headers if not h.startswith("_col_")):
-        raise ValueError("Excel file header row appears empty.")
+        headers = _clean_headers(raw_headers)
+        if not any(header for header in headers if not header.startswith("_col_")):
+            raise ValueError("Excel file header row appears empty.")
+        _raise_duplicate_headers(headers)
 
-    # Validate column_mapping: check all mapped columns exist
-    if column_mapping:
-        missing_cols = []
-        for std_key, excel_col in column_mapping.items():
-            if excel_col not in headers:
-                missing_cols.append(f"'{excel_col}' (needed for '{std_key}')")
-        if missing_cols:
-            raise ValueError(
-                f"Excel file is missing required columns:\n" +
-                "\n".join(f"  - {c}" for c in missing_cols) +
-                f"\n\nAvailable columns: {headers}"
-            )
+        if column_mapping:
+            missing_cols = [
+                f"'{excel_col}' (needed for '{std_key}')"
+                for std_key, excel_col in column_mapping.items()
+                if excel_col not in headers and (not required_fields or std_key in required_fields)
+            ]
+            if missing_cols:
+                raise ValueError(
+                    "Excel file is missing required columns:\n"
+                    + "\n".join(f"  - {column}" for column in missing_cols)
+                    + f"\n\nAvailable columns: {headers}"
+                )
 
-    # Build reverse map: excel_header → standard_key (for fast lookup)
-    reverse_map: dict[str, str] = {}
-    if column_mapping:
-        for std_key, excel_col in column_mapping.items():
-            reverse_map[excel_col] = std_key
+        result: list[dict] = []
+        for raw_row in rows_iter:
+            raw_row_dict: dict[str, str | None] = {}
+            for header, cell_value in zip(headers, raw_row):
+                raw_row_dict[header] = _format_cell_value(cell_value)
 
-    # Read data rows
-    result: list[dict] = []
-    for raw_row in rows_iter:
-        row_dict: dict = {}
-        for header, cell_value in zip(headers, raw_row):
-            cleaned = _format_cell_value(cell_value)
-            output_key = reverse_map.get(header, header) if column_mapping else header
-            row_dict[output_key] = cleaned
+            row_dict: dict[str, str | None] = dict(raw_row_dict)
+            if column_mapping:
+                # Allow one Excel column to feed multiple template/app fields.
+                for output_key, excel_col in column_mapping.items():
+                    row_dict[output_key] = raw_row_dict.get(excel_col)
 
-        # Skip entirely blank rows
-        if all(v is None for v in row_dict.values()):
-            continue
+            if all(value is None for value in row_dict.values()):
+                continue
 
-        result.append(row_dict)
+            result.append(row_dict)
 
-    wb.close()
-    return result
+        return result
+    finally:
+        if wb is not None:
+            wb.close()
 
 
 def get_column_headers(excel_path: str, sheet_name: str | None = None) -> list[str]:
     """
     Return only the column headers from an Excel file.
-    Used by the Profiles tab to populate column mapping dropdowns.
 
-    Args:
-        excel_path: Full path to the .xlsx file.
-        sheet_name: Sheet to read. None = active sheet.
-
-    Returns:
-        List of header strings.
+    Used by the Profiles tab to populate mapping dropdowns.
     """
-    wb = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
-    ws = wb[sheet_name] if sheet_name else wb.active
-    header_row = next(ws.iter_rows(values_only=True), None)
-    wb.close()
-
-    if header_row is None:
-        return []
-    return [str(h).strip() for h in header_row if h is not None]
+    wb = None
+    try:
+        wb = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
+        ws = wb[sheet_name] if sheet_name else wb.active
+        header_row = next(ws.iter_rows(values_only=True), None)
+        if header_row is None:
+            return []
+        headers = [str(header).strip() for header in header_row if header is not None]
+        _raise_duplicate_headers(headers)
+        return headers
+    finally:
+        if wb is not None:
+            wb.close()

@@ -31,6 +31,8 @@ import ssl
 import urllib.error
 import urllib.request
 
+from utils.ssl_compat import create_ssl_context
+
 
 _AISENSY_API_URL = "https://backend.aisensy.com/campaign/t1/api/v2"
 _REQUEST_TIMEOUT_SEC = 15
@@ -128,7 +130,7 @@ class WhatsAppSender:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            ctx = ssl.create_default_context()
+            ctx = create_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=_REQUEST_TIMEOUT_SEC) as response:
                 status_code = getattr(response, "status", 200)
                 raw_body = response.read().decode("utf-8", errors="replace")
@@ -137,12 +139,16 @@ class WhatsAppSender:
             raw_body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
         except TimeoutError:
             return False, "AiSensy API request timed out."
-        except ssl.SSLError as exc:
-            return False, f"AiSensy SSL error: {exc}"
         except urllib.error.URLError as exc:
             reason = getattr(exc, "reason", exc)
+            if isinstance(reason, ssl.SSLError) or "certificate" in str(reason).lower():
+                return False, f"AiSensy SSL error: {reason}"
             return False, f"Cannot reach AiSensy API: {reason}"
+        except ssl.SSLError as exc:
+            return False, f"AiSensy SSL error: {exc}"
         except Exception as exc:
+            if "certificate" in str(exc).lower():
+                return False, f"AiSensy SSL error: {exc}"
             return False, f"AiSensy request error: {exc}"
 
         # Parse response

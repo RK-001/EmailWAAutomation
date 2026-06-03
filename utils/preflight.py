@@ -20,7 +20,7 @@ from typing import Callable
 import urllib.error
 import urllib.request
 
-from utils.ssl_compat import get_merged_ca_bundle_path
+from utils.ssl_compat import create_ssl_context, get_merged_ca_bundle_path
 
 
 # ── Gmail preflight ──────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ def check_gmail_auth(sender_email: str, app_password: str) -> tuple[bool, str]:
     if not sender_email or not normalized_password:
         return False, "Gmail email or app password is not configured."
     try:
-        context = ssl.create_default_context()
+        context = create_ssl_context()
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
             server.ehlo()
             server.starttls(context=context)
@@ -153,7 +153,7 @@ def check_aisensy_reachability(api_key: str) -> tuple[bool, str]:
             "https://backend.aisensy.com/campaign/t1/api/v2",
             method="HEAD",
         )
-        ctx = ssl.create_default_context()
+        ctx = create_ssl_context()
         with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
             status_code = getattr(resp, "status", 200)
         if status_code in (200, 401, 403, 404, 405):

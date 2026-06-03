@@ -14,7 +14,7 @@ hidden_imports = [
     "win32com.client", "pythoncom", "pywintypes", "win32api",
     # google-api-python-client (discovery loaded at runtime)
     "googleapiclient.discovery", "googleapiclient.http",
-    "google.auth.transport.requests", "google.oauth2.service_account",
+    "google.oauth2.service_account",
     "google_auth_httplib2",
     # PIL loaded by customtkinter
     "PIL._tkinter_finder",

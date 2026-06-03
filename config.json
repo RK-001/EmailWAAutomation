@@ -1,19 +1,18 @@
 {
-  "_comment": "BulkNoticeAutomation config. Keep credentials empty in source copies.",
   "gmail": {
-    "sender_email": "",
-    "app_password": ""
+    "sender_email": "rkorade.01@gmail.com",
+    "app_password": "maiqayknbxzhzbdl"
   },
   "aisensy": {
-    "api_key": "",
+    "api_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMWU5YzM2NDJlY2FlMWE2YzI5ODE0MiIsIm5hbWUiOiJHSyA5NjgyIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjZhMWU5YzM2NDJlY2FlMWE2YzI5ODEzYyIsImFjdGl2ZVBsYW4iOiJGUkVFX0ZPUkVWRVIiLCJpYXQiOjE3ODAzOTA5NjZ9.lo-QCxoHpvXa7b6nFACgj7HYDkuZHe5uO6Zp1LyikI0",
     "template_name": "legal_notice_notification",
     "mock_mode": true
   },
   "google_drive": {
-    "service_account_json_path": "drive_credentials.json",
-    "upload_folder_id": "",
+    "service_account_json_path": "C:\\Users\\rushikeshkorade\\Downloads\\tidy-elf-296101-6c99fdae0953.json",
+    "upload_folder_id": "1f1qDBoSfK3N3cGGPQNuHrCnhsIo1uQoq",
     "auto_delete_days": 30,
-    "mock_mode": true
+    "mock_mode": false
   },
   "profiles": {
     "Sample_Profile": {
@@ -21,48 +20,123 @@
       "template_path": "templates/sample_notice.docx",
       "notice_type": "EMI_DEFAULT",
       "email_subject": "Important Communication - {NAME}",
-      "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {ACCOUNTNO}.\n\nFor any queries, please contact us at the number below.\n\nRegards,\nGK Associates",
+      "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {ACCOUNTNO}.\n\nFor any queries, please contact us at the number below.\n\nRegards,\n{FIRM_NAME}",
       "wa_template_params": [
         "NAME",
         "ACCOUNTNO",
         "drive_link",
         "OFFICER_NO"
       ],
+      "template_variables": [
+        "ACCOUNTNO",
+        "AMOUNT",
+        "BRANCH",
+        "CHEQUE_DATE",
+        "FIRM_NAME",
+        "LAWYER_NAME",
+        "NAME",
+        "NOTICE_DATE",
+        "OFFICER_NO",
+        "REASON"
+      ],
+      "auto_template_variables": [
+        "FIRM_NAME",
+        "LAWYER_NAME",
+        "NOTICE_DATE"
+      ],
+      "required_fields": [
+        "NAME"
+      ],
       "column_mapping": {
-        "NAME": "NAME",
-        "EMAILID": "EMAILID",
-        "MOBILENO": "MOBILENO",
-        "AMOUNT": "AMOUNT",
         "ACCOUNTNO": "ACCOUNTNO",
-        "OFFICER_NO": "OFFICER_NO",
+        "AMOUNT": "AMOUNT",
+        "BRANCH": "BRANCH",
         "CHEQUE_DATE": "CHEQUE_DATE",
+        "NAME": "NAME",
+        "OFFICER_NO": "OFFICER_NO",
         "REASON": "REASON",
-        "BRANCH": "BRANCH"
+        "EMAILID": "EMAILID",
+        "MOBILENO": "MOBILENO"
       }
     },
     "HDFC_PSS_Notice": {
       "display_name": "HDFC PSS Notice",
-      "template_path": "templates/hdfc_pss_notice.docx",
+      "template_path": "templates/Notice_Template.docx",
       "notice_type": "PRE_LITIGATION",
       "email_subject": "Important Communication - {NAME}",
-      "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {ACCOUNTNO}.\n\nRegards,\nGK Associates",
+      "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {BANK_ACCOUNT_NO}.\n\nRegards,\n{FIRM_NAME}",
       "wa_template_params": [
         "NAME",
         "ACCOUNTNO",
         "drive_link",
         "OFFICER_NO"
       ],
+      "template_variables": [
+        "ADDRESS_LINE_1",
+        "ADDRESS_LINE_2",
+        "ADVOCATE_NAME",
+        "AMOUNT",
+        "BANK_ACCOUNT_NO",
+        "BOUNCE_DATE",
+        "BOUNCE_REASON",
+        "BUSINESS_TYPE",
+        "CITY",
+        "CLIENT_NAME",
+        "DAYS",
+        "DEMAND_AMOUNT",
+        "EMAIL_ID",
+        "FINE_AMOUNT",
+        "IMPRISONMENT_PERIOD",
+        "LAW_FIRM_NAME",
+        "MOBILE_NO",
+        "NOTICE_COST",
+        "NOTICE_DATE",
+        "OFFICER_MOBILE",
+        "OFFICER_NAME",
+        "OFFICE_ADDRESS",
+        "RECIPIENT_NAME",
+        "REFERENCE_NUMBER",
+        "REFERENCE_NUMBER_2",
+        "REGULATORY_ACT",
+        "SERVICE_DETAIL",
+        "SERVICE_TYPE",
+        "TRANSACTION_DATE",
+        "ZIP_CODE"
+      ],
+      "auto_template_variables": [
+        "NOTICE_DATE"
+      ],
+      "required_fields": [
+        "NAME"
+      ],
       "column_mapping": {
+        "ADDRESS_LINE_1": "ADD-1",
+        "ADDRESS_LINE_2": "ADD-2",
+        "ADVOCATE_NAME": "Adv Name",
+        "AMOUNT": "Loan Amount / BOUNCE AMOUNT",
+        "BANK_ACCOUNT_NO": "ACCOUNT NO",
+        "BOUNCE_DATE": "Claim Date / Bounce Date",
+        "BOUNCE_REASON": "Product / BOUNCE REASON",
+        "BUSINESS_TYPE": "Business type",
+        "CITY": "City",
+        "DAYS": "Day",
+        "DEMAND_AMOUNT": "Total Claim Amount / BOUNCE DATE",
+        "EMAIL_ID": "EMAIL ID",
+        "FINE_AMOUNT": "Total Claim Amount / BOUNCE DATE",
+        "IMPRISONMENT_PERIOD": "Imp Period",
+        "MOBILE_NO": "MOBILENO",
+        "NOTICE_COST": "Cost",
+        "OFFICER_MOBILE": "OFFICER NO",
+        "OFFICER_NAME": "OFFICER NAME",
+        "RECIPIENT_NAME": "NAME",
+        "REFERENCE_NUMBER": "S.NO",
+        "REFERENCE_NUMBER_2": "AAN",
+        "SERVICE_DETAIL": "Product / BOUNCE REASON",
+        "SERVICE_TYPE": "Product / BOUNCE REASON",
+        "TRANSACTION_DATE": "Claim Date / Bounce Date",
         "NAME": "NAME",
         "EMAILID": "EMAIL ID",
-        "MOBILENO": "MOBILENO",
-        "ACCOUNTNO": "ACCOUNT NO",
-        "MASKED_CARD": "MASKED CARD #",
-        "AAN": "AAN",
-        "BOUNCE_AMOUNT": "Loan Amount / BOUNCE AMOUNT",
-        "BOUNCE_REASON": "Product / BOUNCE REASON",
-        "BOUNCE_DATE": "Claim Date / Bounce Date",
-        "OFFICER_NO": "OFFICER NO"
+        "MOBILENO": "MOBILENO"
       }
     }
   },
@@ -74,7 +148,8 @@
     "send_delay_max_sec": 5,
     "max_emails_per_day": 450,
     "drive_cleanup_enabled": true,
-    "lawyer_name": "",
-    "firm_name": ""
-  }
+    "lawyer_name": "RK",
+    "firm_name": "GK"
+  },
+  "_comment": "Starter config for BulkNoticeAutomation. Keep credentials empty in source copies."
 }

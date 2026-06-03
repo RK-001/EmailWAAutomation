@@ -14,11 +14,11 @@ Output filename: <output_dir>/<batch_id>/<ACCOUNTNO>_<NAME>.docx
 
 import os
 import re
+from functools import lru_cache
 
 from docxtpl import DocxTemplate
 
 from utils.sanitizer import sanitize_context
-from utils.validators import validate_template_variables
 
 
 def _safe_filename(text: str, max_len: int = 40) -> str:
@@ -56,22 +56,19 @@ def render_document(
 
     Raises:
         FileNotFoundError: If template_path does not exist.
-        ValueError:        If template has undefined variables not in context.
+        ValueError:        If docxtpl cannot render the template.
         OSError:           If output directory cannot be created or file cannot be saved.
     """
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Template not found: {template_path}")
 
     # ── Step 1: Pre-check template variables ─────────────────────────────────
-    ok, missing = validate_template_variables(template_path, list(context.keys()))
-    if not ok:
-        raise ValueError(
-            f"Template has undefined variables not present in data:\n"
-            + "\n".join(f"  - {{{{{v}}}}}" for v in missing)
-        )
+    context_with_defaults = dict(context)
+    for variable in get_template_variables(template_path):
+        context_with_defaults.setdefault(variable, None)
 
     # ── Step 2: Sanitize context (None → "", escape XML) ─────────────────────
-    safe_context = sanitize_context(context)
+    safe_context = sanitize_context(context_with_defaults)
 
     # ── Step 3: Render ────────────────────────────────────────────────────────
     tpl = DocxTemplate(template_path)
@@ -82,8 +79,8 @@ def render_document(
     os.makedirs(batch_output_dir, exist_ok=True)
 
     # Build filename: index_ACCOUNTNO_NAME.docx
-    account = _safe_filename(context.get("ACCOUNTNO") or f"row{row_index}")
-    name = _safe_filename(context.get("NAME") or "unknown")
+    account = _safe_filename(context_with_defaults.get("ACCOUNTNO") or f"row{row_index}")
+    name = _safe_filename(context_with_defaults.get("NAME") or "unknown")
     filename = f"{row_index:04d}_{account}_{name}.docx"
     output_path = os.path.join(batch_output_dir, filename)
 
@@ -107,5 +104,13 @@ def get_template_variables(template_path: str) -> list[str]:
     """
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Template not found: {template_path}")
-    tpl = DocxTemplate(template_path)
-    return sorted(tpl.get_undeclared_template_variables())
+    abs_path = os.path.abspath(template_path)
+    mtime = os.path.getmtime(abs_path)
+    return list(_get_template_variables_cached(abs_path, mtime))
+
+
+@lru_cache(maxsize=32)
+def _get_template_variables_cached(abs_path: str, mtime: float) -> tuple[str, ...]:
+    """Cache template-variable scans until the template file changes."""
+    tpl = DocxTemplate(abs_path)
+    return tuple(sorted(tpl.get_undeclared_template_variables()))

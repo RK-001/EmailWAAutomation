@@ -18,11 +18,13 @@ Gmail limits:
 """
 
 import os
+import re
 import smtplib
-import ssl
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+from utils.ssl_compat import create_ssl_context
 
 
 class EmailSender:
@@ -104,7 +106,7 @@ class EmailSender:
         if not self._sender_email or not self._app_password:
             return False, "Gmail email or app password is not configured."
         try:
-            context = ssl.create_default_context()
+            context = create_ssl_context()
             with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
                 server.ehlo()
                 server.starttls(context=context)
@@ -144,7 +146,7 @@ class EmailSender:
 
     def _smtp_send(self, msg: MIMEMultipart, to: str) -> None:
         """Open an SMTP connection and send the message."""
-        context = ssl.create_default_context()
+        context = create_ssl_context()
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
             server.ehlo()
             server.starttls(context=context)
@@ -173,10 +175,15 @@ def format_email_content(template_str: str, row: dict) -> str:
 
     Returns:
         Formatted string with placeholders replaced.
-        Unknown placeholders are left as-is.
+        Missing or blank placeholders become "NA".
     """
-    result = template_str
-    for key, value in row.items():
-        placeholder = "{" + key + "}"
-        result = result.replace(placeholder, str(value or ""))
-    return result
+    field_re = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+    def replacement(match: re.Match) -> str:
+        value = row.get(match.group(1))
+        if value is None:
+            return "NA"
+        value = str(value).strip()
+        return value if value else "NA"
+
+    return field_re.sub(replacement, template_str or "")

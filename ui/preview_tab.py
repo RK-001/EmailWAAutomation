@@ -320,6 +320,24 @@ class PreviewTab:
             )
             return
 
+        if send_email and not any(str(r.get("EMAILID") or "").strip() for r in approved_rows):
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "Email Column Missing",
+                "Email sending is selected, but EMAILID is not mapped or is blank "
+                "for all selected rows.",
+            )
+            return
+
+        if send_whatsapp and not any(str(r.get("MOBILENO") or "").strip() for r in approved_rows):
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "Mobile Column Missing",
+                "WhatsApp sending is selected, but MOBILENO is not mapped or is blank "
+                "for all selected rows.",
+            )
+            return
+
         # ── Lawyer approval gate ──────────────────────────────────────────────
         profile = self._cfg.get_profile(self._profile_name)
         default_type = (profile or {}).get("notice_type", "EMI_DEFAULT")

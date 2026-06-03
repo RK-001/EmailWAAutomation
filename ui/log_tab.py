@@ -403,7 +403,9 @@ class LogTab:
             wa_failed = entry.get("wa_status") == "failed"
             if email_failed or wa_failed:
                 # Tag which channels need retrying
-                row_copy = dict(entry)
+                row_data = entry.get("row_data") if isinstance(entry.get("row_data"), dict) else {}
+                row_copy = {**row_data, **entry}
+                row_copy.pop("row_data", None)
                 row_copy["_retry_email"] = email_failed
                 row_copy["_retry_wa"] = wa_failed
                 # Reconstruct to match row format expected by BatchRunner
@@ -454,7 +456,7 @@ class LogTab:
 
         self.prepare_for_send(
             total=len(failed_rows),
-            batch_id=self._batch_id + "_retry",
+            batch_id=self._batch_id,
             log_path=self._log_path,
         )
 
@@ -475,7 +477,8 @@ class LogTab:
     @staticmethod
     def _normalize_entry(entry: dict) -> dict:
         """Map persisted log fields and live row fields into one UI shape."""
-        normalized = dict(entry)
+        row_data = entry.get("row_data") if isinstance(entry.get("row_data"), dict) else {}
+        normalized = {**row_data, **entry}
         normalized.setdefault("row_index", normalized.get("index", 0))
         normalized.setdefault("NAME", normalized.get("name", ""))
         normalized.setdefault("EMAILID", normalized.get("email", ""))

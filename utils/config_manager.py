@@ -59,6 +59,9 @@ VALID_NOTICE_TYPES = [
     "OTHER",
 ]
 
+# Current profile policy: NAME is the only always-required mapped field.
+PROFILE_REQUIRED_FIELDS = ["NAME"]
+
 
 class ConfigManager:
     """
@@ -193,6 +196,21 @@ class ConfigManager:
         """Return a single profile by name, or None."""
         return deepcopy(self._data.get("profiles", {}).get(name))
 
+    def get_profile_required_fields(self, profile: dict | None) -> list[str]:
+        """
+        Return the required mapping fields for a profile under the current app policy.
+
+        Older configs may contain a large `required_fields` list from earlier
+        template-driven behavior. We normalize that here so optional template
+        variables do not keep behaving as mandatory after upgrades.
+        """
+        if not profile:
+            return list(PROFILE_REQUIRED_FIELDS)
+
+        stored = profile.get("required_fields") or []
+        normalized = [field for field in stored if field in PROFILE_REQUIRED_FIELDS]
+        return normalized or list(PROFILE_REQUIRED_FIELDS)
+
     def save_profile(self, name: str, profile: dict) -> None:
         """Add or update a profile and save config."""
         self._data.setdefault("profiles", {})[name] = profile
@@ -283,10 +301,10 @@ class ConfigManager:
                 f"Invalid notice type '{notice_type}'. Must be one of: {VALID_NOTICE_TYPES}"
             )
 
-        required_mapping = ["NAME", "EMAILID", "MOBILENO"]
+        required_mapping = self.get_profile_required_fields(profile)
         col_map = profile.get("column_mapping", {})
         for field in required_mapping:
-            if field not in col_map:
+            if not col_map.get(field):
                 errors.append(f"Column mapping missing required field: '{field}'")
 
         return errors

@@ -1,4 +1,4 @@
-﻿"""
+"""
 utils/logger.py
 ---------------
 Structured per-recipient logging for each batch.
@@ -40,11 +40,13 @@ class BatchLogger:
         whatsapp_error: str,
     ) -> None:
         """Append one recipient result and flush to disk."""
+        row_data = dict(row)
         self._entries.append({
             "index": index,
             "name": row.get("NAME", ""),
             "email": row.get("EMAILID", ""),
             "phone": row.get("MOBILENO", ""),
+            "row_data": row_data,
             "pdf_path": pdf_path,
             "drive_link": drive_link,
             "email_status": email_status,
@@ -88,7 +90,11 @@ class BatchLogger:
         """Export all log entries to CSV for court records."""
         if not self._entries:
             return
-        fieldnames = list(self._entries[0].keys())
+        fieldnames = []
+        for entry in self._entries:
+            for key in entry.keys():
+                if key not in fieldnames:
+                    fieldnames.append(key)
         with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()

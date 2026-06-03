@@ -11,6 +11,7 @@ bundle using `python-certifi-win32` when available and returns its path.
 
 from __future__ import annotations
 
+import ssl
 from typing import Optional
 
 
@@ -28,3 +29,17 @@ def get_merged_ca_bundle_path() -> Optional[str]:
         return wincerts.where()
     except Exception:
         return None
+
+
+def create_ssl_context() -> ssl.SSLContext:
+    """
+    Create an SSL context that prefers the merged Windows/certifi CA bundle.
+
+    Falls back to Python's default trust configuration when the merge helper is
+    unavailable. This keeps HTTPS calls working in normal and corporate-proxy
+    Windows environments without disabling certificate verification.
+    """
+    ca_bundle = get_merged_ca_bundle_path()
+    if ca_bundle:
+        return ssl.create_default_context(cafile=ca_bundle)
+    return ssl.create_default_context()

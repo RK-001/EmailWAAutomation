@@ -1,4 +1,4 @@
-﻿"""
+"""
 utils/checkpoint.py
 -------------------
 Crash-safe batch checkpoint system.

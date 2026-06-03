@@ -205,7 +205,11 @@ class DriveUploader:
         text = str(exc)
         lower = text.lower()
 
-        if "zscaler" in lower or "restricted based on" in lower or "google drive" in lower and "not allowed" in lower:
+        if (
+            "zscaler" in lower
+            or "restricted based on" in lower
+            or ("google drive" in lower and "not allowed" in lower)
+        ):
             return (
                 f"{prefix}: Google Drive is blocked by your office/network security policy "
                 "(Zscaler). Use a network where Drive is allowed, ask IT to whitelist "

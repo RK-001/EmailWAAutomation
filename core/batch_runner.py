@@ -43,7 +43,7 @@ from core.cloud_uploader import DriveUploader
 from core.doc_generator import render_document
 from core.email_sender import EmailSender, format_email_content
 from core.excel_reader import read_excel
-from core.pdf_converter import WordPdfConverter
+from core.pdf_converter import WordPdfConverter, is_word_installed
 from core.whatsapp_sender import WhatsAppSender
 from utils.checkpoint import CheckpointManager, compute_excel_hash
 from utils.config_manager import ConfigManager
@@ -223,6 +223,10 @@ class BatchRunner:
             if profile is None:
                 self._post_error(f"Profile '{profile_name}' not found in config.")
                 return
+            profile_errors = self._cfg.validate_profile(profile_name)
+            if profile_errors:
+                self._post_error("Profile error: " + profile_errors[0])
+                return
 
             settings = self._cfg.get("settings") or {}
             batch_restart_every: int = settings.get("batch_restart_every", 50)
@@ -239,10 +243,23 @@ class BatchRunner:
                 self._post_error(f"Template error: {msg}")
                 return
 
+            self._post_progress(0, 1, "generate", "Checking Microsoft Word...")
+            if not is_word_installed():
+                self._post_error(
+                    "Microsoft Word is required for PDF generation. "
+                    "Install the desktop Microsoft Word app on this system, then run again."
+                )
+                return
+
             # ── Read Excel ────────────────────────────────────────────────────
             self._post_progress(0, 1, "generate", "Reading Excel file…")
             col_mapping = profile.get("column_mapping", {})
-            rows = read_excel(excel_path, column_mapping=col_mapping)
+            required_fields = self._cfg.get_profile_required_fields(profile)
+            rows = read_excel(
+                excel_path,
+                column_mapping=col_mapping,
+                required_fields=required_fields,
+            )
             total = len(rows)
 
             if total == 0:
@@ -452,7 +469,7 @@ class BatchRunner:
             aisensy_cfg = self._cfg.get("aisensy") or {}
             wa_sender = WhatsAppSender(aisensy_cfg, firm_name=firm_name)
 
-            profile = self._cfg.get_profile(self._checkpoint_mgr._profile_name)
+            profile = self._cfg.get_profile(self._checkpoint_mgr._profile_name) or {}
             self._checkpoint_mgr.advance_to_sending()
             last_sent_index = self._checkpoint_mgr.last_sent_index
             is_retry_batch = any(
@@ -475,11 +492,12 @@ class BatchRunner:
                 if not is_retry_batch and row_index <= last_sent_index:
                     continue
 
-                name = row.get("NAME", f"Row {i+1}")
+                recipient_name = _value_or_na(row.get("NAME"))
+                display_name = recipient_name if recipient_name != "NA" else f"Row {i+1}"
 
                 self._post_progress(
                     i, total, "send",
-                    f"Sending {i+1}/{total}: {name}…"
+                    f"Sending {i+1}/{total}: {display_name}..."
                 )
 
                 email_status = "skipped"
@@ -534,11 +552,11 @@ class BatchRunner:
                         wa_status = "failed"
                         wa_error = "Drive link is missing — Google Drive upload may have failed."
                     else:
-                        account_no = row.get("ACCOUNTNO", "")
-                        contact_no = row.get("OFFICER_NO", "")
+                        account_no = _value_or_na(row.get("ACCOUNTNO"))
+                        contact_no = _value_or_na(row.get("OFFICER_NO"))
                         ok, err = wa_sender.send_notice_notification(
                             phone=normalize_phone(phone),
-                            name=name,
+                            name=recipient_name,
                             account_no=account_no,
                             drive_link=drive_link,
                             contact_no=contact_no,
@@ -586,6 +604,12 @@ class BatchRunner:
             # ── Drive cleanup (optional) ──────────────────────────────────────
             if settings.get("drive_cleanup_enabled", True):
                 drive_cfg = self._cfg.get("google_drive") or {}
+                drive_cfg = {
+                    **drive_cfg,
+                    "service_account_json_path": self._cfg.resolve_path(
+                        drive_cfg.get("service_account_json_path", "")
+                    ),
+                }
                 try:
                     uploader = DriveUploader(drive_cfg)
                     auto_delete_days = drive_cfg.get("auto_delete_days", 30)
@@ -687,6 +711,14 @@ class BatchRunner:
         if not matches:
             return None
         return max(matches, key=lambda item: item.get("batch_id", ""))
+
+
+def _value_or_na(value) -> str:
+    """Return a user-facing value, using NA for missing mapped data."""
+    if value is None:
+        return "NA"
+    text = str(value).strip()
+    return text if text else "NA"
 
 
 

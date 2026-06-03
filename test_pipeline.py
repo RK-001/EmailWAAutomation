@@ -216,7 +216,7 @@ def test_sanitizer() -> bool:
         "DATE": "01/01/2026",
     }
     result = sanitize_context(test_row)
-    check("None → empty string",   result["AMOUNT"] == "")
+    check("None becomes NA",       result["AMOUNT"] == "NA")
     check("& escaped",             result["NAME"] == "Ram &amp; Shyam &lt;Corp&gt;")
     check("int → string",          result["ACCOUNT"] == "12345678")
     check("str passthrough",       result["DATE"] == "01/01/2026")

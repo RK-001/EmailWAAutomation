@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import queue
+import re
 from typing import TYPE_CHECKING
 
 import customtkinter as ctk
@@ -100,13 +101,22 @@ class WorkflowTab:
 
         # ── Row count + column validation info ────────────────────────────────
         self._file_info_var = ctk.StringVar(value="")
-        ctk.CTkLabel(
+        self._file_info_label = ctk.CTkLabel(
             self._root,
             textvariable=self._file_info_var,
             font=ctk.CTkFont(size=11),
             text_color="gray60",
             anchor="w",
-        ).grid(row=row, column=0, sticky="w", padx=_PAD_X + 138, pady=(0, 4))
+            justify="left",
+            wraplength=780,
+        )
+        self._file_info_label.grid(
+            row=row,
+            column=0,
+            sticky="ew",
+            padx=_PAD_X + 138,
+            pady=(0, 4),
+        )
         row += 1
 
         # ── 5-row preview table ───────────────────────────────────────────────
@@ -247,12 +257,22 @@ class WorkflowTab:
             return
 
         col_mapping = profile.get("column_mapping") or {}
+        required_fields = self._cfg.get_profile_required_fields(profile)
 
         try:
-            rows = read_excel(excel_path, column_mapping=col_mapping)
+            rows = read_excel(
+                excel_path,
+                column_mapping=col_mapping,
+                required_fields=required_fields,
+            )
         except Exception as exc:
-            self._file_info_var.set(f"❌  {exc}")
-            self._clear_preview()
+            detail = str(exc)
+            self._file_info_var.set(self._summarize_validation_error(detail))
+            self._app.set_status(self._single_line(detail))
+            self._clear_preview(
+                "This Excel file does not match the selected profile mapping.\n"
+                "Please review the profile in the Profiles tab."
+            )
             return
 
         self._preview_rows = rows
@@ -268,13 +288,14 @@ class WorkflowTab:
 
     # ── Preview table rendering ───────────────────────────────────────────────
 
-    def _clear_preview(self) -> None:
+    def _clear_preview(self, message: str = "No data to preview.") -> None:
         for w in self._preview_frame.winfo_children():
             w.destroy()
         ctk.CTkLabel(
             self._preview_frame,
-            text="No data to preview.",
+            text=message,
             text_color="gray60",
+            justify="center",
         ).grid(row=0, column=0, padx=10, pady=10)
 
     def _render_preview(self, rows: list[dict], col_mapping: dict) -> None:
@@ -286,9 +307,14 @@ class WorkflowTab:
             self._clear_preview()
             return
 
-        # Determine columns to show (prefer standard keys that are mapped)
-        show_keys = [k for k in ("NAME", "EMAILID", "MOBILENO", "AMOUNT", "ACCOUNTNO")
-                     if k in (rows[0] or {})]
+        # Determine columns to show from the active profile's dynamic mapping.
+        profile = self._cfg.get_profile(self._profile_var.get()) or {}
+        preferred_keys = (
+            list((profile.get("column_mapping") or {}).keys())
+            or profile.get("required_fields")
+            or list(col_mapping.keys())
+        )
+        show_keys = [k for k in preferred_keys if k in (rows[0] or {})][:8]
         if not show_keys:
             show_keys = list(rows[0].keys())[:5]
 
@@ -507,3 +533,54 @@ class WorkflowTab:
             self._start_btn.configure(state="normal")
             self._pause_btn.configure(state="disabled", text="⏸  Pause")
             self._cancel_btn.configure(state="disabled")
+
+    @staticmethod
+    def _single_line(message: str) -> str:
+        """Collapse multi-line text for the status bar."""
+        return " ".join(part.strip() for part in str(message).splitlines() if part.strip())
+
+    def _summarize_validation_error(self, message: str) -> str:
+        """
+        Keep large mapping errors short enough that the Workflow layout remains usable.
+        """
+        lines = [line.strip() for line in str(message).splitlines() if line.strip()]
+        if not lines:
+            return "Validation failed for the selected Excel file."
+
+        if lines[0].startswith("Excel file is missing required columns:"):
+            missing_cols = []
+            for line in lines[1:]:
+                if line.startswith("Available columns:"):
+                    break
+                if line.startswith("- "):
+                    line = line[2:].strip()
+                match = re.search(r"needed for '([^']+)'", line)
+                if match:
+                    missing_cols.append(match.group(1))
+                else:
+                    missing_cols.append(line.replace("'", ""))
+
+            available_count = None
+            for line in lines:
+                if line.startswith("Available columns:"):
+                    available_count = len(re.findall(r"'([^']+)'", line))
+                    break
+
+            shown = ", ".join(missing_cols[:4])
+            remaining = len(missing_cols) - 4
+
+            summary = (
+                f"Profile mapping does not match this Excel file. "
+                f"Missing {len(missing_cols)} mapped column"
+                f"{'s' if len(missing_cols) != 1 else ''}"
+            )
+            if shown:
+                summary += f": {shown}."
+            if remaining > 0:
+                summary += f" And {remaining} more."
+            if available_count is not None:
+                summary += f" Excel contains {available_count} columns."
+            summary += " Update the profile mapping in Profiles tab."
+            return summary
+
+        return self._single_line(message)
