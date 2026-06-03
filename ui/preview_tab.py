@@ -39,6 +39,7 @@ _COLUMNS: list[tuple[str, str, int]] = [
 
 _PAD_X = 12
 _PAD_Y = 4
+_PAGE_SIZE = 200
 
 
 class PreviewTab:
@@ -55,6 +56,8 @@ class PreviewTab:
 
         # Per-row checkbox state (row_index → BooleanVar)
         self._row_vars: dict[int, ctk.BooleanVar] = {}
+        self._selection_state: dict[int, bool] = {}
+        self._page_index = 0
 
         # Root layout
         parent.grid_columnconfigure(0, weight=1)
@@ -88,6 +91,34 @@ class PreviewTab:
             fg_color="gray50",
             command=self._deselect_all,
         ).grid(row=0, column=2, padx=(0, 12), sticky="w")
+
+        self._prev_page_btn = ctk.CTkButton(
+            top_bar,
+            text="<",
+            width=36,
+            fg_color="gray50",
+            command=lambda: self._go_to_page(self._page_index - 1),
+            state="disabled",
+        )
+        self._prev_page_btn.grid(row=0, column=3, padx=(0, 4), sticky="e")
+
+        self._page_var = ctk.StringVar(value="")
+        ctk.CTkLabel(
+            top_bar,
+            textvariable=self._page_var,
+            width=140,
+            font=ctk.CTkFont(size=11),
+        ).grid(row=0, column=4, padx=(0, 4), sticky="e")
+
+        self._next_page_btn = ctk.CTkButton(
+            top_bar,
+            text=">",
+            width=36,
+            fg_color="gray50",
+            command=lambda: self._go_to_page(self._page_index + 1),
+            state="disabled",
+        )
+        self._next_page_btn.grid(row=0, column=5, sticky="e")
 
         # ── Stage-2 options ───────────────────────────────────────────────────
         opts_frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -151,6 +182,11 @@ class PreviewTab:
         self._batch_id = batch_id
         self._profile_name = profile_name
         self._row_vars = {}
+        self._selection_state = {
+            row.get("row_index", idx): True
+            for idx, row in enumerate(generated_rows)
+        }
+        self._page_index = 0
 
         total = len(generated_rows)
         failed = sum(1 for r in generated_rows if not r.get("pdf_path"))
@@ -161,7 +197,7 @@ class PreviewTab:
             text_color=("black", "white") if not failed else "orange",
         )
 
-        self._render_table(generated_rows)
+        self._render_current_page()
         self._send_all_btn.configure(state="normal")
         self._send_sel_btn.configure(state="normal")
 
@@ -177,10 +213,25 @@ class PreviewTab:
             font=ctk.CTkFont(size=12),
         ).grid(row=0, column=0, padx=16, pady=16)
 
+    def _render_current_page(self) -> None:
+        """Render only one page so large batches do not create thousands of widgets."""
+        total = len(self._rows)
+        page_count = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+        self._page_index = max(0, min(self._page_index, page_count - 1))
+        start = self._page_index * _PAGE_SIZE
+        end = min(start + _PAGE_SIZE, total)
+        self._page_var.set(f"{start + 1}-{end} of {total}" if total else "")
+        self._prev_page_btn.configure(state="normal" if self._page_index > 0 else "disabled")
+        self._next_page_btn.configure(
+            state="normal" if self._page_index < page_count - 1 else "disabled"
+        )
+        self._render_table(self._rows[start:end])
+
     def _render_table(self, rows: list[dict]) -> None:
-        """Build the preview table with one row per generated notice."""
+        """Build the preview table for the current page."""
         for w in self._table_frame.winfo_children():
             w.destroy()
+        self._row_vars = {}
 
         hdr_font = ctk.CTkFont(size=11, weight="bold")
         cell_font = ctk.CTkFont(size=11)
@@ -207,7 +258,7 @@ class PreviewTab:
             row_index = row.get("row_index", r_idx)
 
             # Checkbox
-            var = ctk.BooleanVar(value=True)
+            var = ctk.BooleanVar(value=self._selection_state.get(row_index, True))
             self._row_vars[row_index] = var
             ctk.CTkCheckBox(
                 self._table_frame, text="", variable=var, width=30,
@@ -249,12 +300,25 @@ class PreviewTab:
     # ── Actions ───────────────────────────────────────────────────────────────
 
     def _select_all(self) -> None:
+        for row_index in self._selection_state:
+            self._selection_state[row_index] = True
         for var in self._row_vars.values():
             var.set(True)
 
     def _deselect_all(self) -> None:
+        for row_index in self._selection_state:
+            self._selection_state[row_index] = False
         for var in self._row_vars.values():
             var.set(False)
+
+    def _save_visible_selection(self) -> None:
+        for row_index, var in self._row_vars.items():
+            self._selection_state[row_index] = bool(var.get())
+
+    def _go_to_page(self, page_index: int) -> None:
+        self._save_visible_selection()
+        self._page_index = page_index
+        self._render_current_page()
 
     def _open_pdf(self, pdf_path: str) -> None:
         """Open PDF with the system default viewer (no external dependencies)."""
@@ -276,10 +340,11 @@ class PreviewTab:
             return
 
         # Determine which rows to send
+        self._save_visible_selection()
         if selected_only:
             approved_rows = [
                 r for r in self._rows
-                if self._row_vars.get(r.get("row_index", -1), ctk.BooleanVar(value=True)).get()
+                if self._selection_state.get(r.get("row_index", -1), True)
             ]
         else:
             approved_rows = list(self._rows)

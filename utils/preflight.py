@@ -132,6 +132,34 @@ def check_drive_quota(service_account_path: str, folder_id: str) -> tuple[bool, 
         return False, f"Could not check Drive quota: {exc}"
 
 
+def check_drive_ready(
+    drive_config: dict,
+    allow_oauth_interactive: bool = False,
+) -> tuple[bool, str]:
+    """
+    Build the configured Drive uploader and verify quota + folder access.
+
+    OAuth browser authorization is allowed only when explicitly requested from
+    Setup. Batch/preflight calls should pass the default False.
+    """
+    try:
+        from core.cloud_uploader import DriveUploader
+
+        uploader = DriveUploader(
+            drive_config,
+            allow_oauth_interactive=allow_oauth_interactive,
+        )
+        quota_ok, quota_msg = uploader.check_quota()
+        folder_ok, folder_msg = uploader.test_folder_access()
+        if not quota_ok:
+            return False, quota_msg
+        if not folder_ok:
+            return False, folder_msg
+        return True, folder_msg or quota_msg or "Google Drive ready."
+    except Exception as exc:
+        return False, str(exc)
+
+
 # ── AiSensy preflight ────────────────────────────────────────────────────────
 
 def check_aisensy_reachability(api_key: str) -> tuple[bool, str]:
@@ -260,14 +288,11 @@ def run_preflight(
     drive_cfg = config.get("google_drive", {})
     if not drive_cfg.get("mock_mode", True):
         if on_progress:
-            on_progress("Checking Google Drive quota...")
-        ok, msg = check_drive_quota(
-            drive_cfg.get("service_account_json_path", ""),
-            drive_cfg.get("upload_folder_id", ""),
-        )
-        _report("Drive Quota", ok, msg)
+            on_progress("Checking Google Drive...")
+        ok, msg = check_drive_ready(drive_cfg)
+        _report("Google Drive", ok, msg)
     else:
-        _report("Drive Quota", True, "Skipped (mock mode)")
+        _report("Google Drive", True, "Skipped (mock mode)")
 
     # 6. AiSensy reachability (only if not in mock mode)
     aisensy_cfg = config.get("aisensy", {})

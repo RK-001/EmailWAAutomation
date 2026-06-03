@@ -32,9 +32,11 @@ if TYPE_CHECKING:
 _COLUMNS: list[tuple[str, str, int]] = [
     ("#",           "row_index", 40),
     ("Name",        "NAME",     150),
+    ("Drive",       "drive_upload_status", 100),
     ("Email Status","email_status", 110),
     ("WA Status",   "wa_status", 100),
     ("Time",        "timestamp",  90),
+    ("Drive Error", "drive_upload_error", 160),
     ("Email Error", "email_error",160),
     ("WA Error",    "wa_error",  160),
 ]
@@ -49,6 +51,7 @@ _STATUS_COLORS = {
 
 _PAD_X = 10
 _PAD_Y = 3
+_MAX_RENDERED_LOG_ROWS = 500
 
 
 class LogTab:
@@ -218,7 +221,10 @@ class LogTab:
             row_data = self._normalize_entry(msg.get("row") or {})
             self._entries.append(row_data)
             # Append to table (incremental — faster than full rebuild)
-            self._append_table_row(row_data, len(self._entries))
+            if len(self._entries) <= _MAX_RENDERED_LOG_ROWS:
+                self._append_table_row(row_data, len(self._entries))
+            elif len(self._entries) % 100 == 0:
+                self._apply_filter(self._filter_var.get())
             self._send_progress.set(current / total)
             self._send_progress_var.set(message)
             self._app.set_status(message)
@@ -325,8 +331,22 @@ class LogTab:
             ).grid(row=1, column=0, columnspan=len(_COLUMNS), padx=8, pady=8)
             return
 
-        for r_idx, entry in enumerate(entries):
-            self._append_table_row(entry, r_idx + 1)
+        visible_entries = entries
+        start_row = 1
+        if len(entries) > _MAX_RENDERED_LOG_ROWS:
+            visible_entries = entries[-_MAX_RENDERED_LOG_ROWS:]
+            ctk.CTkLabel(
+                self._table_frame,
+                text=(
+                    f"Showing latest {_MAX_RENDERED_LOG_ROWS} of {len(entries)} entries. "
+                    "Use Export CSV for the full log."
+                ),
+                text_color="gray60",
+            ).grid(row=1, column=0, columnspan=len(_COLUMNS), padx=8, pady=8, sticky="w")
+            start_row = 2
+
+        for r_idx, entry in enumerate(visible_entries):
+            self._append_table_row(entry, r_idx + start_row)
 
     # ── Filter ────────────────────────────────────────────────────────────────
 

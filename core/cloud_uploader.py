@@ -4,7 +4,8 @@ core/cloud_uploader.py
 Upload PDF files to Google Drive and return shareable "anyone with link" URLs.
 
 Design:
-  - Authenticates via service account JSON (law firm owns the GDrive)
+  - Supports personal Google Drive via OAuth Desktop Client JSON + token.json
+  - Keeps legacy service account JSON support for Workspace/shared-drive setups
   - UUID-based filenames prevent enumeration of uploaded files
   - Creates viewer-only "anyone with link" permission on each upload
   - Pre-flight quota check before batch upload
@@ -24,6 +25,8 @@ from utils.ssl_compat import get_merged_ca_bundle_path
 
 _DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 _MOCK_URL_PREFIX = "https://drive.google.com/mock/"
+_AUTH_MODE_OAUTH = "oauth_user"
+_AUTH_MODE_SERVICE_ACCOUNT = "service_account"
 
 
 class DriveUploader:
@@ -35,15 +38,22 @@ class DriveUploader:
         link = uploader.upload_pdf(pdf_path, display_name="RameshKumar_Notice.pdf")
     """
 
-    def __init__(self, drive_config: dict):
+    def __init__(self, drive_config: dict, allow_oauth_interactive: bool = False):
         """
         Args:
             drive_config: The "google_drive" section of config.json.
-                          Must contain: service_account_json_path, upload_folder_id, mock_mode.
+                          Must contain auth_mode, upload_folder_id, mock_mode, and
+                          mode-specific credential paths.
+            allow_oauth_interactive: True only for Setup's Authorize/Test button.
+                                     Batch runs must never open a browser.
         """
         self._mock_mode: bool = drive_config.get("mock_mode", True)
+        self._auth_mode: str = drive_config.get("auth_mode") or _AUTH_MODE_OAUTH
         self._folder_id: str = drive_config.get("upload_folder_id", "")
         self._creds_path: str = drive_config.get("service_account_json_path", "")
+        self._oauth_client_path: str = drive_config.get("oauth_client_json_path", "")
+        self._oauth_token_path: str = drive_config.get("oauth_token_json_path", "token.json")
+        self._allow_oauth_interactive = allow_oauth_interactive
         self._service = None
 
         if not self._mock_mode:
@@ -99,6 +109,32 @@ class DriveUploader:
         except Exception as exc:
             return False, self._friendly_google_error(exc, "Could not check Drive quota")
 
+    def test_folder_access(self) -> tuple[bool, str]:
+        """
+        Verify the configured folder exists and the signed-in account can add files.
+        Does not upload a file.
+        """
+        if self._mock_mode:
+            return True, "Mock mode - Drive folder check skipped."
+        if not self._folder_id:
+            return False, "Google Drive upload folder ID is not set."
+        try:
+            folder = self._service.files().get(
+                fileId=self._folder_id,
+                fields="id,name,mimeType,capabilities(canAddChildren)",
+                supportsAllDrives=True,
+            ).execute()
+            if folder.get("mimeType") != "application/vnd.google-apps.folder":
+                return False, "Configured Drive ID is not a folder."
+            if not folder.get("capabilities", {}).get("canAddChildren", False):
+                return False, (
+                    "Signed-in Google account cannot upload to this folder. "
+                    "Use a folder owned by this account or grant editor access."
+                )
+            return True, f"Drive folder ready: {folder.get('name', self._folder_id)}"
+        except Exception as exc:
+            return False, self._friendly_google_error(exc, "Could not access Drive folder")
+
     def delete_old_files(self, older_than_days: int = 30) -> int:
         """
         Delete files in the configured Drive folder older than N days.
@@ -129,11 +165,16 @@ class DriveUploader:
     # ── Internal ─────────────────────────────────────────────────────────────
 
     def _build_service(self):
-        """Build authenticated Google Drive service."""
+        """Build authenticated Google Drive service for the selected auth mode."""
+        if self._auth_mode == _AUTH_MODE_SERVICE_ACCOUNT:
+            return self._build_service_account_service()
+        if self._auth_mode == _AUTH_MODE_OAUTH:
+            return self._build_oauth_service()
+        raise ValueError(f"Unsupported Google Drive auth mode: {self._auth_mode}")
+
+    def _build_service_account_service(self):
+        """Build authenticated Google Drive service with a service account JSON."""
         from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-        import google_auth_httplib2
-        import httplib2
 
         if not os.path.exists(self._creds_path):
             raise FileNotFoundError(
@@ -144,6 +185,76 @@ class DriveUploader:
             self._creds_path,
             scopes=_DRIVE_SCOPES,
         )
+        return self._build_service_from_credentials(creds)
+
+    def _build_oauth_service(self):
+        """Build authenticated Google Drive service with a saved user OAuth token."""
+        from google.auth.exceptions import RefreshError
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+
+        creds = None
+        if self._oauth_token_path and os.path.exists(self._oauth_token_path):
+            creds = Credentials.from_authorized_user_file(
+                self._oauth_token_path,
+                _DRIVE_SCOPES,
+            )
+
+        if creds and creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+                self._save_oauth_token(creds)
+            except RefreshError as exc:
+                creds = None
+                if not self._allow_oauth_interactive:
+                    raise RuntimeError(
+                        "Google Drive OAuth token expired and could not be refreshed. "
+                        "Open Setup and run Authorize / Test Drive again."
+                    ) from exc
+
+        if not creds or not creds.valid:
+            if not self._allow_oauth_interactive:
+                raise RuntimeError(
+                    "Google Drive OAuth is not authorized on this machine. "
+                    "Open Setup and run Authorize / Test Drive once before generating a batch."
+                )
+            creds = self._run_oauth_authorization()
+
+        return self._build_service_from_credentials(creds)
+
+    def _run_oauth_authorization(self):
+        """Open browser OAuth consent and save token.json for future runs."""
+        from google_auth_oauthlib.flow import InstalledAppFlow
+
+        if not self._oauth_client_path or not os.path.exists(self._oauth_client_path):
+            raise FileNotFoundError(
+                f"OAuth client JSON not found: {self._oauth_client_path}\n"
+                "Create a Google Cloud OAuth Desktop Client JSON and select it in Setup."
+            )
+
+        flow = InstalledAppFlow.from_client_secrets_file(
+            self._oauth_client_path,
+            _DRIVE_SCOPES,
+        )
+        creds = flow.run_local_server(port=0)
+        self._save_oauth_token(creds)
+        return creds
+
+    def _save_oauth_token(self, creds) -> None:
+        """Persist OAuth token JSON beside the app/config."""
+        token_dir = os.path.dirname(os.path.abspath(self._oauth_token_path))
+        if token_dir:
+            os.makedirs(token_dir, exist_ok=True)
+        with open(self._oauth_token_path, "w", encoding="utf-8") as token_file:
+            token_file.write(creds.to_json())
+
+    @staticmethod
+    def _build_service_from_credentials(creds):
+        """Build Drive API client with project CA bundle compatibility."""
+        from googleapiclient.discovery import build
+        import google_auth_httplib2
+        import httplib2
+
         ca_bundle = get_merged_ca_bundle_path()
         http = (
             httplib2.Http(ca_certs=ca_bundle, timeout=30)
@@ -177,6 +288,7 @@ class DriveUploader:
                 body=file_metadata,
                 media_body=media,
                 fields="id",
+                supportsAllDrives=True,
             ).execute()
 
             file_id = uploaded["id"]
@@ -185,6 +297,7 @@ class DriveUploader:
             self._service.permissions().create(
                 fileId=file_id,
                 body={"type": "anyone", "role": "reader"},
+                supportsAllDrives=True,
             ).execute()
 
             return f"https://drive.google.com/file/d/{file_id}/view"
@@ -216,10 +329,16 @@ class DriveUploader:
                 "Google Drive / Drive API, or turn Drive mock mode ON for testing."
             )
 
+        if "not found" in lower or "404" in lower:
+            return f"{prefix}: Drive folder/file was not found. Check the folder ID and signed-in Google account."
+
         if "forbidden" in lower or "403" in lower:
             return f"{prefix}: Access to Google Drive API was denied. Check network policy, folder sharing, and service-account permissions."
 
         if "ssl" in lower or "certificate" in lower:
             return f"{prefix}: SSL certificate validation failed while connecting to Google Drive."
+
+        if "timed out" in lower or "winerror 10060" in lower:
+            return f"{prefix}: Google Drive API connection timed out. Check internet/proxy/firewall access."
 
         return f"{prefix}: {text}"

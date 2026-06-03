@@ -38,6 +38,11 @@ class BatchLogger:
         email_error: str,
         whatsapp_status: str,
         whatsapp_error: str,
+        drive_upload_status: str = "",
+        drive_upload_error: str = "",
+        doc_render_seconds: float = 0.0,
+        pdf_convert_seconds: float = 0.0,
+        drive_upload_seconds: float = 0.0,
     ) -> None:
         """Append one recipient result and flush to disk."""
         row_data = dict(row)
@@ -49,6 +54,11 @@ class BatchLogger:
             "row_data": row_data,
             "pdf_path": pdf_path,
             "drive_link": drive_link,
+            "drive_upload_status": drive_upload_status,
+            "drive_upload_error": drive_upload_error,
+            "doc_render_seconds": doc_render_seconds,
+            "pdf_convert_seconds": pdf_convert_seconds,
+            "drive_upload_seconds": drive_upload_seconds,
             "email_status": email_status,
             "email_error": email_error,
             "whatsapp_status": whatsapp_status,

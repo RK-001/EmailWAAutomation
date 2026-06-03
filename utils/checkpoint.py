@@ -90,12 +90,27 @@ class CheckpointManager:
 
     # -- Write ---
 
-    def mark_result(self, index: int, pdf_path: str, drive_link: str) -> None:
+    def mark_result(
+        self,
+        index: int,
+        pdf_path: str,
+        drive_link: str,
+        drive_upload_status: str = "",
+        drive_upload_error: str = "",
+        doc_render_seconds: float = 0.0,
+        pdf_convert_seconds: float = 0.0,
+        drive_upload_seconds: float = 0.0,
+    ) -> None:
         """Record a successfully generated PDF + Drive link."""
         self._data["last_generated_index"] = index
         self._data["results"][str(index)] = {
             "pdf_path": pdf_path,
             "drive_link": drive_link,
+            "drive_upload_status": drive_upload_status,
+            "drive_upload_error": drive_upload_error,
+            "doc_render_seconds": doc_render_seconds,
+            "pdf_convert_seconds": pdf_convert_seconds,
+            "drive_upload_seconds": drive_upload_seconds,
             "included": True,
         }
         self._save()

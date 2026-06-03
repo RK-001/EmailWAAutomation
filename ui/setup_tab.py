@@ -149,9 +149,28 @@ class SetupTab:
         # ── Section: Google Drive ─────────────────────────────────────────────
         row = self._section_header("GOOGLE DRIVE SETTINGS", row)
 
+        self._drive_auth_mode_var = ctk.StringVar(value="oauth_user")
+        row = self._option_row(
+            "Auth Mode:",
+            self._drive_auth_mode_var,
+            ["oauth_user", "service_account"],
+            row,
+        )
+
+        self._drive_oauth_client_var = ctk.StringVar()
+        row = self._file_picker_row(
+            "OAuth Client JSON:", self._drive_oauth_client_var, row,
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        self._drive_oauth_token_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "OAuth Token Path:", self._drive_oauth_token_var, row,
+            placeholder="token.json",
+        )
+
         self._drive_creds_var = ctk.StringVar()
         row = self._file_picker_row(
-            "Credentials JSON:", self._drive_creds_var, row,
+            "Service Account JSON:", self._drive_creds_var, row,
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
         )
         self._drive_folder_id_var = ctk.StringVar()
@@ -166,6 +185,14 @@ class SetupTab:
             self._drive_mock_var,
             row,
             note="Disable when Drive credentials are configured.",
+        )
+
+        self._drive_status_var = ctk.StringVar(value="")
+        row = self._test_row(
+            "Authorize / Test Drive",
+            self._drive_status_var,
+            self._test_drive,
+            row,
         )
 
         # ── Section: Advanced Settings ────────────────────────────────────────
@@ -288,6 +315,26 @@ class SetupTab:
 
         return row + 1
 
+    def _option_row(
+        self,
+        label: str,
+        var: ctk.StringVar,
+        values: list[str],
+        row: int,
+    ) -> int:
+        """Label + option menu pair. Returns next available row."""
+        ctk.CTkLabel(
+            self._scroll, text=label, anchor="e", width=_LABEL_W,
+        ).grid(row=row, column=0, sticky="e", padx=(_PAD_X, 8), pady=_PAD_Y)
+
+        ctk.CTkOptionMenu(
+            self._scroll,
+            values=values,
+            variable=var,
+            width=_ENTRY_W,
+        ).grid(row=row, column=1, sticky="w", pady=_PAD_Y)
+        return row + 1
+
     def _toggle_row(
         self,
         label: str,
@@ -384,6 +431,15 @@ class SetupTab:
             self._cfg.get("aisensy.template_name") or "legal_notice_notification"
         )
         self._aisensy_mock_var.set(bool(self._cfg.get("aisensy.mock_mode", True)))
+        self._drive_auth_mode_var.set(
+            self._cfg.get("google_drive.auth_mode") or "oauth_user"
+        )
+        self._drive_oauth_client_var.set(
+            self._cfg.get("google_drive.oauth_client_json_path") or "oauth_credentials.json"
+        )
+        self._drive_oauth_token_var.set(
+            self._cfg.get("google_drive.oauth_token_json_path") or "token.json"
+        )
         self._drive_creds_var.set(
             self._cfg.get("google_drive.service_account_json_path") or ""
         )
@@ -423,6 +479,15 @@ class SetupTab:
             self._aisensy_template_var.get().strip() or "legal_notice_notification",
         )
         self._cfg.set("aisensy.mock_mode", self._aisensy_mock_var.get())
+        self._cfg.set("google_drive.auth_mode", self._drive_auth_mode_var.get())
+        self._cfg.set(
+            "google_drive.oauth_client_json_path",
+            self._cfg.make_path_portable(self._drive_oauth_client_var.get().strip()),
+        )
+        self._cfg.set(
+            "google_drive.oauth_token_json_path",
+            self._cfg.make_path_portable(self._drive_oauth_token_var.get().strip() or "token.json"),
+        )
         self._cfg.set(
             "google_drive.service_account_json_path",
             self._cfg.make_path_portable(self._drive_creds_var.get().strip()),
@@ -482,3 +547,34 @@ class SetupTab:
         ok, msg = check_aisensy_reachability(api_key)
         status = "✅  AiSensy: Reachable" if ok else f"❌  {msg}"
         self._app.after(0, lambda: self._aisensy_status_var.set(status))
+
+    def _test_drive(self) -> None:
+        """Spawn a background thread to authorize and test Google Drive."""
+        self._drive_status_var.set("Testing Drive...")
+        threading.Thread(target=self._do_test_drive, daemon=True).start()
+
+    def _do_test_drive(self) -> None:
+        """Background: OAuth/service-account Drive readiness check."""
+        from utils.preflight import check_drive_ready
+
+        def _resolve(raw_path: str) -> str:
+            raw_path = raw_path.strip()
+            if not raw_path:
+                return raw_path
+            return self._cfg.resolve_path(raw_path)
+
+        drive_config = {
+            "auth_mode": self._drive_auth_mode_var.get() or "oauth_user",
+            "oauth_client_json_path": _resolve(self._drive_oauth_client_var.get()),
+            "oauth_token_json_path": _resolve(self._drive_oauth_token_var.get() or "token.json"),
+            "service_account_json_path": _resolve(self._drive_creds_var.get()),
+            "upload_folder_id": self._drive_folder_id_var.get().strip(),
+            "auto_delete_days": 30,
+            "mock_mode": False,
+        }
+        ok, msg = check_drive_ready(
+            drive_config,
+            allow_oauth_interactive=True,
+        )
+        status = f"Drive: {msg}" if ok else f"Drive failed: {msg}"
+        self._app.after(0, lambda: self._drive_status_var.set(status))

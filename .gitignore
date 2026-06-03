@@ -2,7 +2,16 @@ __pycache__/
 *.py[cod]
 
 build/
-dist/
+dist/*
+!dist/NoticeAutomation/
+dist/NoticeAutomation/*
+!dist/NoticeAutomation/README.md
+!dist/NoticeAutomation/logs/
+!dist/NoticeAutomation/logs/.gitkeep
+!dist/NoticeAutomation/output/
+!dist/NoticeAutomation/output/.gitkeep
+!dist/NoticeAutomation/templates/
+!dist/NoticeAutomation/templates/.gitkeep
 logs/
 output/
 
@@ -10,3 +19,7 @@ config.json.bak
 *.tmp
 
 drive_credentials.json
+oauth_credentials.json
+client_secret*.json
+token.json
+drive_token.json

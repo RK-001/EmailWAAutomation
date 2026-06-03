@@ -49,7 +49,6 @@ from utils.checkpoint import CheckpointManager, compute_excel_hash
 from utils.config_manager import ConfigManager
 from utils.logger import BatchLogger
 from utils.preflight import (
-    check_drive_quota,
     check_email_capacity,
     check_template_readable,
 )
@@ -306,11 +305,19 @@ class BatchRunner:
                 "service_account_json_path": self._cfg.resolve_path(
                     drive_cfg.get("service_account_json_path", "")
                 ),
+                "oauth_client_json_path": self._cfg.resolve_path(
+                    drive_cfg.get("oauth_client_json_path", "")
+                ),
+                "oauth_token_json_path": self._cfg.resolve_path(
+                    drive_cfg.get("oauth_token_json_path", "token.json")
+                ),
             }
             drive_uploader: DriveUploader | None = None
+            drive_init_error = ""
             try:
                 drive_uploader = DriveUploader(drive_cfg)
             except Exception as exc:
+                drive_init_error = str(exc)
                 self._post_progress(
                     start_index,
                     total,
@@ -318,16 +325,17 @@ class BatchRunner:
                     f"⚠ Drive disabled for this batch: {exc}",
                 )
 
-            # Check Drive quota (non-blocking warning)
+            # Check Drive readiness (non-blocking warning)
             if drive_uploader is not None and not drive_cfg.get("mock_mode", True):
-                creds_path = drive_cfg.get("service_account_json_path", "")
-                folder_id = drive_cfg.get("upload_folder_id", "")
-                ok, msg = check_drive_quota(creds_path, folder_id)
-                if not ok:
-                    self._post_progress(start_index, total, "generate", f"⚠ Drive: {msg}")
+                quota_ok, quota_msg = drive_uploader.check_quota()
+                folder_ok, folder_msg = drive_uploader.test_folder_access()
+                if not quota_ok:
+                    self._post_progress(start_index, total, "generate", f"Drive: {quota_msg}")
+                if not folder_ok:
+                    self._post_progress(start_index, total, "generate", f"Drive: {folder_msg}")
 
             # ── Init Word COM converter ───────────────────────────────────────
-            converter = WordPdfConverter()
+            converter = WordPdfConverter(restart_every=batch_restart_every)
 
             # ── Generate loop ─────────────────────────────────────────────────
             generated: list[dict] = []
@@ -348,6 +356,11 @@ class BatchRunner:
                             **row_with_statics,
                             "pdf_path": cp_result.get("pdf_path", ""),
                             "drive_link": cp_result.get("drive_link", ""),
+                            "drive_upload_status": cp_result.get("drive_upload_status", ""),
+                            "drive_upload_error": cp_result.get("drive_upload_error", ""),
+                            "doc_render_seconds": cp_result.get("doc_render_seconds", 0.0),
+                            "pdf_convert_seconds": cp_result.get("pdf_convert_seconds", 0.0),
+                            "drive_upload_seconds": cp_result.get("drive_upload_seconds", 0.0),
                             "row_index": i,
                         })
                         continue
@@ -366,14 +379,11 @@ class BatchRunner:
                     f"Generating {i+1}/{total}: {row.get('NAME', 'Row ' + str(i+1))}…"
                 )
 
-                # Restart Word COM every N files to prevent memory leaks/hangs
-                if i > 0 and i % batch_restart_every == 0:
-                    converter.quit()
-                    time.sleep(1)
-                    converter = WordPdfConverter()
-
                 # ── Generate Word doc + PDF ───────────────────────────────────
+                doc_render_seconds = 0.0
+                pdf_convert_seconds = 0.0
                 try:
+                    phase_start = time.perf_counter()
                     docx_path = render_document(
                         template_path=template_path,
                         context=row_with_statics,
@@ -381,7 +391,10 @@ class BatchRunner:
                         batch_id=self._batch_id,
                         row_index=i,
                     )
+                    doc_render_seconds = round(time.perf_counter() - phase_start, 3)
+                    phase_start = time.perf_counter()
                     pdf_path = converter.convert(docx_path)
+                    pdf_convert_seconds = round(time.perf_counter() - phase_start, 3)
                 except Exception as exc:
                     # Log the error but continue with next row
                     self._post_progress(
@@ -392,32 +405,75 @@ class BatchRunner:
                         **row_with_statics,
                         "pdf_path": "",
                         "drive_link": "",
+                        "drive_upload_status": "skipped",
+                        "drive_upload_error": "PDF generation failed before Drive upload.",
+                        "doc_render_seconds": doc_render_seconds,
+                        "pdf_convert_seconds": pdf_convert_seconds,
+                        "drive_upload_seconds": 0.0,
                         "row_index": i,
                         "_generate_error": str(exc),
                     })
-                    self._checkpoint_mgr.mark_result(i, pdf_path="", drive_link="")
+                    self._checkpoint_mgr.mark_result(
+                        i,
+                        pdf_path="",
+                        drive_link="",
+                        drive_upload_status="skipped",
+                        drive_upload_error="PDF generation failed before Drive upload.",
+                        doc_render_seconds=doc_render_seconds,
+                        pdf_convert_seconds=pdf_convert_seconds,
+                        drive_upload_seconds=0.0,
+                    )
                     continue
 
                 # ── Upload to Drive ───────────────────────────────────────────
                 drive_link = ""
+                drive_upload_status = "skipped"
+                drive_upload_error = ""
+                drive_upload_seconds = 0.0
                 if drive_uploader is not None:
                     try:
+                        phase_start = time.perf_counter()
                         drive_link = drive_uploader.upload_pdf(
                             pdf_path=pdf_path,
                         )
+                        drive_upload_seconds = round(time.perf_counter() - phase_start, 3)
+                        drive_upload_status = (
+                            "mock" if drive_cfg.get("mock_mode", True) else "uploaded"
+                        )
                     except Exception as exc:
+                        drive_upload_seconds = round(time.perf_counter() - phase_start, 3)
+                        drive_upload_status = "failed"
+                        drive_upload_error = str(exc)
                         self._post_progress(
                             i, total, "generate",
                             f"⚠ Row {i+1} Drive upload failed: {exc}"
                         )
 
                 # ── Save result ───────────────────────────────────────────────
-                self._checkpoint_mgr.mark_result(i, pdf_path=pdf_path, drive_link=drive_link)
+                if drive_uploader is None and drive_init_error:
+                    drive_upload_status = "disabled"
+                    drive_upload_error = drive_init_error
+
+                self._checkpoint_mgr.mark_result(
+                    i,
+                    pdf_path=pdf_path,
+                    drive_link=drive_link,
+                    drive_upload_status=drive_upload_status,
+                    drive_upload_error=drive_upload_error,
+                    doc_render_seconds=doc_render_seconds,
+                    pdf_convert_seconds=pdf_convert_seconds,
+                    drive_upload_seconds=drive_upload_seconds,
+                )
 
                 generated.append({
                     **row_with_statics,
                     "pdf_path": pdf_path,
                     "drive_link": drive_link,
+                    "drive_upload_status": drive_upload_status,
+                    "drive_upload_error": drive_upload_error,
+                    "doc_render_seconds": doc_render_seconds,
+                    "pdf_convert_seconds": pdf_convert_seconds,
+                    "drive_upload_seconds": drive_upload_seconds,
                     "row_index": i,
                 })
 
@@ -506,6 +562,11 @@ class BatchRunner:
                 wa_error = ""
                 pdf_path = row.get("pdf_path", "")
                 drive_link = row.get("drive_link", "")
+                drive_upload_status = row.get("drive_upload_status", "")
+                drive_upload_error = row.get("drive_upload_error", "")
+                doc_render_seconds = row.get("doc_render_seconds", 0.0)
+                pdf_convert_seconds = row.get("pdf_convert_seconds", 0.0)
+                drive_upload_seconds = row.get("drive_upload_seconds", 0.0)
                 row_send_email = send_email and row.get("_retry_email", True)
                 row_send_whatsapp = send_whatsapp and row.get("_retry_wa", True)
 
@@ -577,6 +638,11 @@ class BatchRunner:
                     email_error=email_error,
                     whatsapp_status=wa_status,
                     whatsapp_error=wa_error,
+                    drive_upload_status=drive_upload_status,
+                    drive_upload_error=drive_upload_error,
+                    doc_render_seconds=doc_render_seconds,
+                    pdf_convert_seconds=pdf_convert_seconds,
+                    drive_upload_seconds=drive_upload_seconds,
                 )
                 self._checkpoint_mgr.mark_sent(
                     index=row_index,
@@ -597,6 +663,11 @@ class BatchRunner:
                         "email_error": email_error,
                         "wa_status": wa_status,
                         "wa_error": wa_error,
+                        "drive_upload_status": drive_upload_status,
+                        "drive_upload_error": drive_upload_error,
+                        "doc_render_seconds": doc_render_seconds,
+                        "pdf_convert_seconds": pdf_convert_seconds,
+                        "drive_upload_seconds": drive_upload_seconds,
                     },
                     "summary": None,
                 })
@@ -608,6 +679,12 @@ class BatchRunner:
                     **drive_cfg,
                     "service_account_json_path": self._cfg.resolve_path(
                         drive_cfg.get("service_account_json_path", "")
+                    ),
+                    "oauth_client_json_path": self._cfg.resolve_path(
+                        drive_cfg.get("oauth_client_json_path", "")
+                    ),
+                    "oauth_token_json_path": self._cfg.resolve_path(
+                        drive_cfg.get("oauth_token_json_path", "token.json")
                     ),
                 }
                 try:

@@ -36,8 +36,13 @@ import time
 import pythoncom
 import win32com.client
 
-# Word SaveAs format constant for PDF
-_WD_FORMAT_PDF = 17
+# Word fixed-format export constants.
+_WD_EXPORT_FORMAT_PDF = 17
+_WD_EXPORT_OPTIMIZE_FOR_PRINT = 0
+_WD_EXPORT_ALL_DOCUMENT = 0
+_WD_EXPORT_DOCUMENT_CONTENT = 0
+_WD_EXPORT_CREATE_NO_BOOKMARKS = 0
+_WD_FORMAT_PDF_SAVE_AS = 17
 
 
 class WordPdfConverter:
@@ -86,12 +91,8 @@ class WordPdfConverter:
 
         doc = None
         try:
-            doc = self._word.Documents.Open(
-                docx_path,
-                ReadOnly=True,
-                Visible=False,
-            )
-            doc.SaveAs(pdf_path, FileFormat=_WD_FORMAT_PDF)
+            doc = self._open_document(docx_path)
+            self._export_pdf(doc, pdf_path)
         except Exception as exc:
             raise RuntimeError(
                 f"Word COM conversion failed for '{os.path.basename(docx_path)}': {exc}"
@@ -111,6 +112,51 @@ class WordPdfConverter:
         self._quit_word()
 
     # ── Internal ─────────────────────────────────────────────────────────────
+
+    def _open_document(self, docx_path: str):
+        """Open a document with dialog/recent-file side effects disabled."""
+        try:
+            return self._word.Documents.OpenNoRepairDialog(
+                FileName=docx_path,
+                ConfirmConversions=False,
+                ReadOnly=True,
+                AddToRecentFiles=False,
+                Revert=False,
+                Visible=False,
+                OpenAndRepair=False,
+                NoEncodingDialog=True,
+            )
+        except Exception:
+            return self._word.Documents.Open(
+                FileName=docx_path,
+                ConfirmConversions=False,
+                ReadOnly=True,
+                AddToRecentFiles=False,
+                Revert=False,
+                Visible=False,
+                OpenAndRepair=False,
+                NoEncodingDialog=True,
+            )
+
+    def _export_pdf(self, doc, pdf_path: str) -> None:
+        """Export PDF through Word's fixed-format API, with SaveAs fallback."""
+        try:
+            doc.ExportAsFixedFormat(
+                OutputFileName=pdf_path,
+                ExportFormat=_WD_EXPORT_FORMAT_PDF,
+                OpenAfterExport=False,
+                OptimizeFor=_WD_EXPORT_OPTIMIZE_FOR_PRINT,
+                Range=_WD_EXPORT_ALL_DOCUMENT,
+                Item=_WD_EXPORT_DOCUMENT_CONTENT,
+                IncludeDocProps=True,
+                KeepIRM=True,
+                CreateBookmarks=_WD_EXPORT_CREATE_NO_BOOKMARKS,
+                DocStructureTags=False,
+                BitmapMissingFonts=True,
+                UseISO19005_1=False,
+            )
+        except Exception:
+            doc.SaveAs(pdf_path, FileFormat=_WD_FORMAT_PDF_SAVE_AS)
 
     def _start_word(self) -> None:
         """

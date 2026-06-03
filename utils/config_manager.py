@@ -31,6 +31,9 @@ _DEFAULT_CONFIG: dict = {
         "mock_mode": True,
     },
     "google_drive": {
+        "auth_mode": "oauth_user",
+        "oauth_client_json_path": "oauth_credentials.json",
+        "oauth_token_json_path": "token.json",
         "service_account_json_path": "drive_credentials.json",
         "upload_folder_id": "",
         "auto_delete_days": 30,
@@ -268,11 +271,28 @@ class ConfigManager:
         if self.get("google_drive.mock_mode", True):
             return []
         errors = []
-        creds_path = self.resolve_path(self.get("google_drive.service_account_json_path", ""))
-        if not creds_path:
-            errors.append("Google Drive service account JSON path is not set.")
-        elif not os.path.exists(creds_path):
-            errors.append(f"Drive credentials file not found: {creds_path}")
+        auth_mode = self.get("google_drive.auth_mode", "oauth_user")
+        if auth_mode == "service_account":
+            creds_path = self.resolve_path(self.get("google_drive.service_account_json_path", ""))
+            if not creds_path:
+                errors.append("Google Drive service account JSON path is not set.")
+            elif not os.path.exists(creds_path):
+                errors.append(f"Drive credentials file not found: {creds_path}")
+        elif auth_mode == "oauth_user":
+            client_path = self.resolve_path(self.get("google_drive.oauth_client_json_path", ""))
+            token_path = self.resolve_path(self.get("google_drive.oauth_token_json_path", ""))
+            if not client_path:
+                errors.append("Google Drive OAuth client JSON path is not set.")
+            elif not os.path.exists(client_path):
+                errors.append(f"Drive OAuth client JSON not found: {client_path}")
+            if not token_path:
+                errors.append("Google Drive OAuth token path is not set.")
+            elif not os.path.exists(token_path):
+                errors.append(
+                    "Google Drive OAuth is not authorized. Run Authorize / Test Drive in Setup."
+                )
+        else:
+            errors.append(f"Invalid Google Drive auth mode: {auth_mode}")
         if not self.get("google_drive.upload_folder_id", ""):
             errors.append("Google Drive upload folder ID is not set.")
         return errors
