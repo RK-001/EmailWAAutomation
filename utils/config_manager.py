@@ -12,6 +12,7 @@ Design:
 
 import json
 import os
+import re
 import shutil
 import tempfile
 from copy import deepcopy
@@ -25,9 +26,12 @@ _DEFAULT_CONFIG: dict = {
         "sender_email": "",
         "app_password": "",
     },
-    "aisensy": {
-        "api_key": "",
-        "template_name": "legal_notice_notification",
+    "meta_whatsapp": {
+        "phone_number_id": "",
+        "access_token": "",
+        "template_name": "",
+        "api_version": "v21.0",
+        "template_language": "en",
         "mock_mode": True,
     },
     "google_drive": {
@@ -64,6 +68,53 @@ VALID_NOTICE_TYPES = [
 
 # Current profile policy: NAME is the only always-required mapped field.
 PROFILE_REQUIRED_FIELDS = ["NAME"]
+
+_META_TEMPLATE_LANGUAGE_RE = re.compile(r"^[a-z]{2}(?:_[A-Z]{2})?$")
+_META_TEMPLATE_NAME_PLACEHOLDERS = {
+    "your_template_name",
+    "template_name",
+    "template_name_here",
+    "approved_template_name",
+    "replace_with_approved_template_name",
+    "replace_me",
+}
+
+
+def _validate_meta_template_name(template_name: str, label: str) -> list[str]:
+    """Validate a Meta template name for live sends."""
+    value = str(template_name or "").strip()
+    if not value:
+        return [f"{label} template name is not set."]
+    if value.lower() in _META_TEMPLATE_NAME_PLACEHOLDERS:
+        return [f"{label} template name still uses a placeholder value."]
+    return []
+
+
+def _validate_meta_template_language(template_language: str, label: str) -> list[str]:
+    """Validate a Meta template language code for live sends."""
+    value = str(template_language or "").strip()
+    if not value:
+        return [f"{label} template language is not set."]
+    if not _META_TEMPLATE_LANGUAGE_RE.fullmatch(value):
+        return [f"{label} template language must look like 'en' or 'en_US'."]
+    return []
+
+
+def validate_meta_whatsapp_config(meta_config: dict, label: str = "Meta WhatsApp") -> list[str]:
+    """Validate one effective Meta WhatsApp config dict."""
+    if meta_config.get("mock_mode", True):
+        return []
+
+    errors = []
+    if not meta_config.get("phone_number_id", ""):
+        errors.append(f"{label} Phone Number ID is not set.")
+    if not meta_config.get("access_token", ""):
+        errors.append(f"{label} Access Token is not set.")
+    errors.extend(_validate_meta_template_name(meta_config.get("template_name", ""), label))
+    errors.extend(
+        _validate_meta_template_language(meta_config.get("template_language", ""), label)
+    )
+    return errors
 
 
 class ConfigManager:
@@ -255,16 +306,9 @@ class ConfigManager:
             errors.append("Gmail app password is not set.")
         return errors
 
-    def validate_aisensy(self) -> list[str]:
-        """Validate AiSensy settings (skipped in mock mode)."""
-        if self.get("aisensy.mock_mode", True):
-            return []
-        errors = []
-        if not self.get("aisensy.api_key", ""):
-            errors.append("AiSensy API key is not set.")
-        if not self.get("aisensy.template_name", ""):
-            errors.append("AiSensy template name is not set.")
-        return errors
+    def validate_meta_whatsapp(self) -> list[str]:
+        """Validate Meta WhatsApp settings (skipped in mock mode)."""
+        return validate_meta_whatsapp_config(self.get("meta_whatsapp") or {})
 
     def validate_google_drive(self) -> list[str]:
         """Validate Google Drive settings (skipped in mock mode)."""
@@ -326,6 +370,36 @@ class ConfigManager:
         for field in required_mapping:
             if not col_map.get(field):
                 errors.append(f"Column mapping missing required field: '{field}'")
+
+        wa_template_params = profile.get("wa_template_params")
+        if wa_template_params is not None:
+            if not isinstance(wa_template_params, list):
+                errors.append("WhatsApp template params must be a list of field names.")
+            else:
+                normalized_params: list[str] = []
+                for param in wa_template_params:
+                    if not isinstance(param, str) or not param.strip():
+                        errors.append("WhatsApp template params contain an empty field name.")
+                        break
+                    normalized_params.append(param.strip())
+
+                if not normalized_params:
+                    errors.append("WhatsApp template params cannot be empty.")
+                elif "drive_link" not in normalized_params:
+                    errors.append("WhatsApp template params must include 'drive_link'.")
+
+        profile_template_name = profile.get("wa_template_name")
+        if profile_template_name:
+            errors.extend(_validate_meta_template_name(profile_template_name, "Profile WhatsApp"))
+
+        profile_template_language = profile.get("wa_template_language")
+        if profile_template_language:
+            errors.extend(
+                _validate_meta_template_language(
+                    profile_template_language,
+                    "Profile WhatsApp",
+                )
+            )
 
         return errors
 

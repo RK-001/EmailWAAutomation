@@ -1,6 +1,6 @@
 # Bulk Notice Automation
 
-Simple desktop app to generate legal notice PDFs from Excel and Word templates, then send them by Gmail and AiSensy WhatsApp.
+Simple desktop app to generate legal notice PDFs from Excel and Word templates, then send them by Gmail and Meta WhatsApp Business API.
 
 ## Run From Source
 
@@ -29,10 +29,10 @@ Open the `Setup` tab and fill:
 - `Firm Name`
 - `Lawyer Name`
 - Gmail sender email and Gmail App Password
-- AiSensy API key and approved template name
-- Google Drive service account JSON path and folder ID
+- Meta WhatsApp Phone Number ID, Access Token, and approved template name
+- Google Drive OAuth or service account credentials and folder ID
 
-Keep AiSensy and Google Drive mock mode ON while testing.
+Keep Meta WhatsApp and Google Drive mock mode ON while testing.
 
 `config.json` is only a starter config. Enter real credentials on the new
 system from the `Setup` tab.
@@ -58,49 +58,150 @@ If Gmail test says authentication failed:
 - Create a fresh App Password after enabling 2-Step Verification
 - Paste only the 16-character App Password into the app
 
-## AiSensy Setup
+## Meta WhatsApp Business Setup
 
-Steps:
+**IMPORTANT:** Meta WhatsApp requires pre-approved message templates. You cannot send arbitrary text messages. All messages must use approved templates.
 
-1. Log in to AiSensy
-2. Open `Manage > API Keys`
-3. Copy the live API key into the app
-4. Open `Manage > Template Messages`
-5. Create a Utility template and submit it for approval
-6. Copy the exact approved template name into the app
-7. Turn mock mode OFF only when you are ready to send real WhatsApp messages
+### Prerequisites
 
-Suggested WhatsApp template body:
+1. Meta Business Manager account (business.facebook.com)
+2. Verified WhatsApp Business phone number
+3. Approved message template with TEXT header and 4 body variables
 
-```text
-Dear {{1}}, an important communication regarding your account {{2}} has been shared with you. Please review: {{3}}. For queries: {{4}}.
-```
+### Setup Steps
 
-The app sends:
+#### 1. Create WhatsApp Business App
 
-- `{{1}}` = customer name
-- `{{2}}` = account number
-- `{{3}}` = Google Drive PDF link
-- `{{4}}` = officer/contact number
+1. Go to [Meta Business Manager](https://business.facebook.com)
+2. Navigate to **Business Settings** → **Accounts** → **WhatsApp Accounts**
+3. Click **Add** and follow the setup wizard
+4. Add and verify your business phone number
 
-If the test says AiSensy cannot be reached, first check internet/proxy access.
-If it mentions SSL/certificate, install requirements again and make sure
+#### 2. Get Phone Number ID
+
+1. In WhatsApp Manager, go to **API Setup**
+2. Find your phone number and copy the **Phone Number ID**
+3. Save this ID — you'll need it in the app
+
+#### 3. Create System User for Permanent Token
+
+1. In Business Settings, go to **Users** → **System Users**
+2. Click **Add** and create a new system user
+3. Assign the system user to your WhatsApp Business Account with **Admin** role
+4. Click **Generate New Token**
+5. Select your WhatsApp Business App
+6. Grant permissions: `whatsapp_business_messaging`, `whatsapp_business_management`
+7. Set token to **Never expire**
+8. Copy and save the token securely
+
+**Note:** Temporary tokens expire in 24 hours. Always use a permanent token from a System User.
+
+#### 4. Create and Submit Message Template
+
+1. In WhatsApp Manager, go to **Message Templates**
+2. Click **Create Template**
+3. Fill template details:
+   - **Category:** UTILITY (for transactional messages)
+   - **Name:** `legal_notice_v1` (or your choice, lowercase with underscores)
+   - **Language:** English
+
+4. Configure template components:
+
+   **HEADER:**
+   - Type: **TEXT**
+   - Text: `Legal Communication` (or your firm name)
+
+   **BODY:**
+   ```
+   Dear {{1}}, an important communication regarding your account {{2}} has been shared with you. Please review: {{3}}. For queries: {{4}}.
+   ```
+
+   **FOOTER (optional):**
+   ```
+   - [Your Firm Name]
+   ```
+
+   **BUTTONS (optional):** You can add a "Call Us" button if needed
+
+5. Click **Submit** and wait for approval (typically 1-48 hours)
+6. Once approved, copy the exact template name
+
+### Template Variables
+
+The app sends these values to the template body:
+
+- `{{1}}` = Customer name (from NAME column)
+- `{{2}}` = Account number (from ACCOUNTNO column)
+- `{{3}}` = Google Drive PDF link (auto-generated after upload)
+- `{{4}}` = Officer/contact phone number (from OFFICER_NO column)
+
+The PDF link is sent as clickable text in the message body.
+
+### Configure in the App
+
+1. Open the **Setup** tab
+2. Under **META WHATSAPP SETTINGS**:
+   - Paste **Phone Number ID**
+   - Paste **Access Token** (permanent token from System User)
+   - Enter **Template Name** (exact name from approved template)
+   - Keep **API Version** as `v21.0` (default)
+   - Keep **Template Language** as `en` for English templates
+   - Keep **Mock Mode** ON for testing
+
+3. Click **Test Meta API** to verify credentials
+4. If test passes, turn **Mock Mode OFF** when ready for production
+
+### Troubleshooting
+
+**Error: "Invalid OAuth access token"**
+- Token expired (use permanent token from System User, not temporary)
+- Token doesn't have required permissions
+- Create new permanent token and try again
+
+**Error: "Invalid Phone Number ID"**
+- Check Phone Number ID is correct
+- Ensure WhatsApp Business account is active
+
+**Error: "Template not found"**
+- Template not approved yet (wait for approval)
+- Template name doesn't match exactly (check spelling/case)
+- Template was rejected (check Meta dashboard for status)
+
+**Error: "Template parameter count mismatch"**
+- Your template has different number of variables than expected
+- Ensure template body has exactly 4 variables: {{1}}, {{2}}, {{3}}, {{4}}
+
+If the test says Meta API cannot be reached, check internet/proxy access.
+If it mentions SSL/certificate, install requirements again and ensure
 `python-certifi-win32` is installed on Windows.
 
 ## Google Drive Setup
 
-Steps:
+Personal Gmail / client-owned Drive is now supported through OAuth.
+
+Recommended OAuth steps:
 
 1. Open Google Cloud Console
 2. Create or select a project
 3. Enable `Google Drive API`
-4. Create a Service Account
-5. Create a JSON key for that service account
-6. Put the JSON file in this project folder, usually as `drive_credentials.json`
+4. Configure OAuth consent for the client/user
+5. Create an OAuth Client ID with application type `Desktop app`
+6. Download the client JSON and place it in this project folder, usually as
+   `oauth_credentials.json`
 7. Create a folder in Google Drive for notice PDFs
-8. Share that folder with the service account email as `Editor`
-9. Copy the folder ID from the Google Drive URL into the app
-10. Turn Google Drive mock mode OFF only after the folder is shared correctly
+8. Copy the folder ID from the Google Drive URL into the app
+9. In the `Setup` tab, set Drive auth mode to `oauth_user`
+10. Select the OAuth client JSON, keep token path as `token.json`, and click
+    `Authorize / Test Drive`
+11. Turn Google Drive mock mode OFF only after the Drive test passes
+
+The first authorization opens a browser and saves `token.json`. Future uploads
+reuse that token. Do not migrate or share `token.json`; authorize again on each
+new machine.
+
+Legacy service-account setup is still available by setting Drive auth mode to
+`service_account`, selecting the service-account JSON, and sharing the Drive
+folder with that service account as `Editor`.
 
 Example folder URL:
 
@@ -192,5 +293,3 @@ The packaged app will be created under:
 ```text
 dist\NoticeAutomation\
 ```
-//Might usefule
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMWU5YzM2NDJlY2FlMWE2YzI5ODE0MiIsIm5hbWUiOiJHSyA5NjgyIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjZhMWU5YzM2NDJlY2FlMWE2YzI5ODEzYyIsImFjdGl2ZVBsYW4iOiJGUkVFX0ZPUkVWRVIiLCJpYXQiOjE3ODAzOTA5NjZ9.lo-QCxoHpvXa7b6nFACgj7HYDkuZHe5uO6Zp1LyikI01f1qDBoSfK3N3cGGPQNuHrCnhsIo1uQoq

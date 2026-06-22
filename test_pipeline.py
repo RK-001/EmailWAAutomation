@@ -327,7 +327,13 @@ def test_email_sender(results: list[dict]) -> bool:
 
 def test_whatsapp_sender(results: list[dict]) -> bool:
     section("TEST 9: WhatsApp Sender (mock mode)")
-    sender = WhatsAppSender({"api_key": "", "template_name": "legal_notice_notification", "mock_mode": True}, firm_name="GK Associates")
+    sender = WhatsAppSender({
+        "phone_number_id": "123456789",
+        "access_token": "test_token",
+        "template_name": "notice_delivery_utility",
+        "api_version": "v21.0",
+        "mock_mode": True
+    }, firm_name="GK Associates")
     all_ok = True
     for i, item in enumerate(results):
         ok_flag, err = sender.send_notice_notification(

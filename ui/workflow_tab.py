@@ -151,7 +151,7 @@ class WorkflowTab:
         for var, label, tip in [
             (self._gen_pdf_var, "✅  Generate PDF", "Excel → Word → PDF (always required)"),
             (self._send_email_var, "📧  Send Email", "Attach PDF and send via Gmail"),
-            (self._send_wa_var, "💬  Send WhatsApp", "Send notification via AiSensy"),
+            (self._send_wa_var, "💬  Send WhatsApp", "Send notification via Meta WhatsApp Business API"),
         ]:
             frame = ctk.CTkFrame(toggles_frame, fg_color="transparent")
             frame.pack(side="left", padx=(0, 22))

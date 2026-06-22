@@ -10,7 +10,7 @@ Acts as the central hub:
   - Manages graceful window close (warns if batch is running)
 
 Tab layout:
-  ⚙  Setup      → Gmail, AiSensy, Drive credentials + test buttons
+  ⚙  Setup      → Gmail, Meta WhatsApp, Drive credentials + test buttons
   👥  Profiles   → Create / edit / delete client profiles
   📄  Workflow   → Pick Excel + profile → generate all PDFs
   🔍  Preview    → Review generated rows, exclude, then send

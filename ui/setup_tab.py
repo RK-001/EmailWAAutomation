@@ -6,12 +6,12 @@ Setup Tab — one-time configuration of credentials and service settings.
 Sections:
   1. FIRM SETTINGS     — lawyer name, firm name (shown in notices + top bar)
   2. GMAIL SETTINGS    — sender email + App Password + live connection test
-  3. AISENSY SETTINGS  — API key + template name + mock mode toggle
+  3. META WHATSAPP SETTINGS — Phone Number ID + Access Token + template name
   4. GOOGLE DRIVE      — service account JSON path + folder ID + mock mode
   5. Save Settings button
 
 All credentials are stored in config.json.
-The "Test" buttons perform live checks (Gmail SMTP, AiSensy reachability).
+The "Test" buttons perform live checks (Gmail SMTP, Meta API token validation).
 """
 
 from __future__ import annotations
@@ -114,35 +114,50 @@ class SetupTab:
             row,
         )
 
-        # ── Section: AiSensy (WhatsApp) ───────────────────────────────────────
-        row = self._section_header("AISENSY / WHATSAPP SETTINGS", row)
+        # ── Section: Meta WhatsApp ───────────────────────────────────────
+        row = self._section_header("META WHATSAPP SETTINGS", row)
 
-        self._aisensy_key_var = ctk.StringVar()
+        self._meta_phone_id_var = ctk.StringVar()
         row = self._labeled_entry(
-            "API Key:", self._aisensy_key_var, row,
-            placeholder="Paste AiSensy API key here",
+            "Phone Number ID:", self._meta_phone_id_var, row,
+            placeholder="From Meta Business Manager",
+        )
+        self._meta_access_token_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Access Token:", self._meta_access_token_var, row,
+            placeholder="Permanent access token from Meta",
             show="●",
         )
-        self._aisensy_template_var = ctk.StringVar()
+        self._meta_template_var = ctk.StringVar()
         row = self._labeled_entry(
-            "Template Name:", self._aisensy_template_var, row,
-            placeholder="legal_notice_notification",
+            "Template Name:", self._meta_template_var, row,
+            placeholder="Approved Meta template name",
+        )
+        self._meta_api_version_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "API Version:", self._meta_api_version_var, row,
+            placeholder="v21.0",
+        )
+        self._meta_template_language_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Template Language:", self._meta_template_language_var, row,
+            placeholder="en",
         )
 
         # Mock mode toggle
-        self._aisensy_mock_var = ctk.BooleanVar(value=True)
+        self._meta_mock_var = ctk.BooleanVar(value=True)
         row = self._toggle_row(
             "Mock Mode (no real sends):",
-            self._aisensy_mock_var,
+            self._meta_mock_var,
             row,
             note="Disable when ready for production.",
         )
 
-        self._aisensy_status_var = ctk.StringVar(value="")
+        self._meta_status_var = ctk.StringVar(value="")
         row = self._test_row(
-            "Test AiSensy Reach",
-            self._aisensy_status_var,
-            self._test_aisensy,
+            "Test Meta API",
+            self._meta_status_var,
+            self._test_meta_whatsapp,
             row,
         )
 
@@ -426,11 +441,18 @@ class SetupTab:
         self._lawyer_name_var.set(self._cfg.get("settings.lawyer_name") or "")
         self._gmail_email_var.set(self._cfg.get("gmail.sender_email") or "")
         self._gmail_pass_var.set(self._cfg.get("gmail.app_password") or "")
-        self._aisensy_key_var.set(self._cfg.get("aisensy.api_key") or "")
-        self._aisensy_template_var.set(
-            self._cfg.get("aisensy.template_name") or "legal_notice_notification"
+        self._meta_phone_id_var.set(self._cfg.get("meta_whatsapp.phone_number_id") or "")
+        self._meta_access_token_var.set(self._cfg.get("meta_whatsapp.access_token") or "")
+        self._meta_template_var.set(
+            self._cfg.get("meta_whatsapp.template_name") or ""
         )
-        self._aisensy_mock_var.set(bool(self._cfg.get("aisensy.mock_mode", True)))
+        self._meta_api_version_var.set(
+            self._cfg.get("meta_whatsapp.api_version") or "v21.0"
+        )
+        self._meta_template_language_var.set(
+            self._cfg.get("meta_whatsapp.template_language") or "en"
+        )
+        self._meta_mock_var.set(bool(self._cfg.get("meta_whatsapp.mock_mode", True)))
         self._drive_auth_mode_var.set(
             self._cfg.get("google_drive.auth_mode") or "oauth_user"
         )
@@ -473,12 +495,21 @@ class SetupTab:
 
         self._cfg.set("gmail.sender_email", gmail_email)
         self._cfg.set("gmail.app_password", gmail_app_password)
-        self._cfg.set("aisensy.api_key", self._aisensy_key_var.get().strip())
+        self._cfg.set("meta_whatsapp.phone_number_id", self._meta_phone_id_var.get().strip())
+        self._cfg.set("meta_whatsapp.access_token", self._meta_access_token_var.get().strip())
         self._cfg.set(
-            "aisensy.template_name",
-            self._aisensy_template_var.get().strip() or "legal_notice_notification",
+            "meta_whatsapp.template_name",
+            self._meta_template_var.get().strip(),
         )
-        self._cfg.set("aisensy.mock_mode", self._aisensy_mock_var.get())
+        self._cfg.set(
+            "meta_whatsapp.api_version",
+            self._meta_api_version_var.get().strip() or "v21.0",
+        )
+        self._cfg.set(
+            "meta_whatsapp.template_language",
+            self._meta_template_language_var.get().strip() or "en",
+        )
+        self._cfg.set("meta_whatsapp.mock_mode", self._meta_mock_var.get())
         self._cfg.set("google_drive.auth_mode", self._drive_auth_mode_var.get())
         self._cfg.set(
             "google_drive.oauth_client_json_path",
@@ -534,19 +565,21 @@ class SetupTab:
         # GUI update must run on the main thread
         self._app.after(0, lambda: self._gmail_status_var.set(status))
 
-    def _test_aisensy(self) -> None:
-        """Spawn a background thread to check AiSensy reachability."""
-        self._aisensy_status_var.set("⏳  Testing…")
-        threading.Thread(target=self._do_test_aisensy, daemon=True).start()
+    def _test_meta_whatsapp(self) -> None:
+        """Spawn a background thread to check Meta WhatsApp API."""
+        self._meta_status_var.set("⏳  Testing…")
+        threading.Thread(target=self._do_test_meta_whatsapp, daemon=True).start()
 
-    def _do_test_aisensy(self) -> None:
-        """Background: HEAD request to AiSensy API endpoint."""
-        from utils.preflight import check_aisensy_reachability
-        # Pass current API key so a missing key is also caught early
-        api_key = self._aisensy_key_var.get().strip()
-        ok, msg = check_aisensy_reachability(api_key)
-        status = "✅  AiSensy: Reachable" if ok else f"❌  {msg}"
-        self._app.after(0, lambda: self._aisensy_status_var.set(status))
+    def _do_test_meta_whatsapp(self) -> None:
+        """Background: Validate Meta API credentials."""
+        from utils.preflight import check_meta_whatsapp_connection
+        # Pass current credentials
+        phone_number_id = self._meta_phone_id_var.get().strip()
+        access_token = self._meta_access_token_var.get().strip()
+        api_version = self._meta_api_version_var.get().strip() or "v21.0"
+        ok, msg = check_meta_whatsapp_connection(phone_number_id, access_token, api_version)
+        status = "✅  Meta API: Connected" if ok else f"❌  {msg}"
+        self._app.after(0, lambda: self._meta_status_var.set(status))
 
     def _test_drive(self) -> None:
         """Spawn a background thread to authorize and test Google Drive."""

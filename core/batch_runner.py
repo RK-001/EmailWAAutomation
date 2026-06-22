@@ -46,7 +46,7 @@ from core.excel_reader import read_excel
 from core.pdf_converter import WordPdfConverter, is_word_installed
 from core.whatsapp_sender import WhatsAppSender
 from utils.checkpoint import CheckpointManager, compute_excel_hash
-from utils.config_manager import ConfigManager
+from utils.config_manager import ConfigManager, validate_meta_whatsapp_config
 from utils.logger import BatchLogger
 from utils.preflight import (
     check_email_capacity,
@@ -60,6 +60,7 @@ from utils.validators import normalize_phone, validate_email, validate_phone
 _EMAIL_DELAY_SEC = 5          # Gmail guidelines: ~5 sec between sends
 _WA_DELAY_MIN_SEC = 3         # Min WhatsApp inter-message delay
 _WA_DELAY_MAX_SEC = 5         # Max WhatsApp inter-message delay
+_DEFAULT_WA_TEMPLATE_PARAMS = ("NAME", "ACCOUNTNO", "drive_link", "OFFICER_NO")
 
 class BatchRunner:
     """
@@ -522,10 +523,18 @@ class BatchRunner:
             gmail_cfg = self._cfg.get("gmail") or {}
             email_sender = EmailSender(gmail_cfg)
 
-            aisensy_cfg = self._cfg.get("aisensy") or {}
-            wa_sender = WhatsAppSender(aisensy_cfg, firm_name=firm_name)
-
             profile = self._cfg.get_profile(self._checkpoint_mgr._profile_name) or {}
+            meta_whatsapp_cfg = _merge_profile_meta_whatsapp_config(
+                self._cfg.get("meta_whatsapp") or {},
+                profile,
+            )
+            if send_whatsapp:
+                meta_errors = validate_meta_whatsapp_config(meta_whatsapp_cfg)
+                if meta_errors:
+                    self._post_error(f"Meta WhatsApp error: {meta_errors[0]}")
+                    return
+            wa_sender = WhatsAppSender(meta_whatsapp_cfg, firm_name=firm_name)
+
             self._checkpoint_mgr.advance_to_sending()
             last_sent_index = self._checkpoint_mgr.last_sent_index
             is_retry_batch = any(
@@ -613,20 +622,29 @@ class BatchRunner:
                         wa_status = "failed"
                         wa_error = "Drive link is missing — Google Drive upload may have failed."
                     else:
-                        account_no = _value_or_na(row.get("ACCOUNTNO"))
-                        contact_no = _value_or_na(row.get("OFFICER_NO"))
-                        ok, err = wa_sender.send_notice_notification(
-                            phone=normalize_phone(phone),
-                            name=recipient_name,
-                            account_no=account_no,
-                            drive_link=drive_link,
-                            contact_no=contact_no,
-                            batch_id=self._batch_id,
+                        template_params, param_error = _build_whatsapp_template_params(
+                            profile,
+                            row,
                         )
-                        wa_status = "sent" if ok else "failed"
-                        wa_error = err
-                        # Random inter-message delay (Meta rate-limit safety)
-                        time.sleep(random.uniform(delay_min, delay_max))
+                        if param_error:
+                            wa_status = "failed"
+                            wa_error = param_error
+                        else:
+                            account_no = _value_or_na(row.get("ACCOUNTNO"))
+                            contact_no = _value_or_na(row.get("OFFICER_NO"))
+                            ok, err = wa_sender.send_notice_notification(
+                                phone=normalize_phone(phone),
+                                name=recipient_name,
+                                account_no=account_no,
+                                drive_link=drive_link,
+                                contact_no=contact_no,
+                                batch_id=self._batch_id,
+                                template_params=template_params,
+                            )
+                            wa_status = "sent" if ok else "failed"
+                            wa_error = err
+                            # Random inter-message delay (Meta rate-limit safety)
+                            time.sleep(random.uniform(delay_min, delay_max))
 
                 # ── Log + checkpoint ──────────────────────────────────────────
                 self._logger.log_row(
@@ -796,6 +814,52 @@ def _value_or_na(value) -> str:
         return "NA"
     text = str(value).strip()
     return text if text else "NA"
+
+
+def _merge_profile_meta_whatsapp_config(meta_config: dict, profile: dict) -> dict:
+    """Apply optional profile-level WhatsApp template overrides."""
+    merged = dict(meta_config)
+
+    template_name = str(profile.get("wa_template_name", "") or "").strip()
+    if template_name:
+        merged["template_name"] = template_name
+
+    template_language = str(profile.get("wa_template_language", "") or "").strip()
+    if template_language:
+        merged["template_language"] = template_language
+
+    return merged
+
+
+def _build_whatsapp_template_params(profile: dict, row: dict) -> tuple[list[str], str]:
+    """Resolve WhatsApp body params from the profile-configured field order."""
+    configured_params = profile.get("wa_template_params") or list(_DEFAULT_WA_TEMPLATE_PARAMS)
+    if not isinstance(configured_params, (list, tuple)):
+        return [], "WhatsApp template params must be a list of field names."
+
+    resolved_params: list[str] = []
+    missing_fields: list[str] = []
+
+    for raw_name in configured_params:
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            return [], "WhatsApp template params contain an empty field name."
+
+        field_name = raw_name.strip()
+        if field_name not in row:
+            missing_fields.append(field_name)
+            continue
+
+        resolved_params.append(_value_or_na(row.get(field_name)))
+
+    if missing_fields:
+        return [], (
+            "WhatsApp template params reference missing fields: "
+            + ", ".join(missing_fields)
+        )
+    if not resolved_params:
+        return [], "WhatsApp template params are empty."
+
+    return resolved_params, ""
 
 
 

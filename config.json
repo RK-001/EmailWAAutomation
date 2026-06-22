@@ -3,12 +3,18 @@
     "sender_email": "rkorade.01@gmail.com",
     "app_password": "maiqayknbxzhzbdl"
   },
-  "aisensy": {
-    "api_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMWU5YzM2NDJlY2FlMWE2YzI5ODE0MiIsIm5hbWUiOiJHSyA5NjgyIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjZhMWU5YzM2NDJlY2FlMWE2YzI5ODEzYyIsImFjdGl2ZVBsYW4iOiJGUkVFX0ZPUkVWRVIiLCJpYXQiOjE3ODAzOTA5NjZ9.lo-QCxoHpvXa7b6nFACgj7HYDkuZHe5uO6Zp1LyikI0",
-    "template_name": "legal_notice_notification",
+  "meta_whatsapp": {
+    "phone_number_id": "",
+    "access_token": "",
+    "template_name": "",
+    "api_version": "v21.0",
+    "template_language": "en",
     "mock_mode": true
   },
   "google_drive": {
+    "auth_mode": "oauth_user",
+    "oauth_client_json_path": "oauth_credentials.json",
+    "oauth_token_json_path": "token.json",
     "service_account_json_path": "C:\\Users\\rushikeshkorade\\Downloads\\tidy-elf-296101-6c99fdae0953.json",
     "upload_folder_id": "1f1qDBoSfK3N3cGGPQNuHrCnhsIo1uQoq",
     "auto_delete_days": 30,
@@ -63,8 +69,8 @@
       "display_name": "HDFC PSS Notice",
       "template_path": "templates/Notice_Template.docx",
       "notice_type": "PRE_LITIGATION",
-      "email_subject": "Important Communication - {NAME}",
-      "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {BANK_ACCOUNT_NO}.\n\nRegards,\n{FIRM_NAME}",
+      "email_subject": "Important Communication",
+      "email_body": "Dear  {BANK_ACCOUNT_NO},\n\nPFA an important communication regarding your account  {CustNAME} and {BOUNCE_DATE} {NAME} , {BOUNCE_REASON}.\n\nRegards,\n{FIRM_NAME}",
       "wa_template_params": [
         "NAME",
         "ACCOUNTNO",
@@ -134,7 +140,7 @@
         "SERVICE_DETAIL": "Product / BOUNCE REASON",
         "SERVICE_TYPE": "Product / BOUNCE REASON",
         "TRANSACTION_DATE": "Claim Date / Bounce Date",
-        "NAME": "NAME",
+        "NAME": "CustNAME",
         "EMAILID": "EMAIL ID",
         "MOBILENO": "MOBILENO"
       }
@@ -151,5 +157,5 @@
     "lawyer_name": "RK",
     "firm_name": "GK"
   },
-  "_comment": "Starter config for BulkNoticeAutomation. Keep credentials empty in source copies."
+  "_comment": "Starter config for BulkNoticeAutomation. Keep credentials empty in source copies and enter approved Meta settings before disabling mock mode."
 }

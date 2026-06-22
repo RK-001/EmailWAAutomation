@@ -582,13 +582,20 @@ class ProfilesTab:
         ]
 
         email_body = self._email_body_text.get("1.0", "end").rstrip("\n")
+        existing_profile = self._cfg.get_profile(profile_key) or {}
         profile_data = {
+            **existing_profile,
             "display_name": self._display_name_var.get().strip() or profile_key,
             "template_path": self._cfg.make_path_portable(raw_template_path),
             "notice_type": self._notice_type_var.get(),
             "email_subject": self._email_subject_var.get().strip(),
             "email_body": email_body,
-            "wa_template_params": ["NAME", "ACCOUNTNO", "drive_link", "OFFICER_NO"],
+            "wa_template_params": existing_profile.get("wa_template_params") or [
+                "NAME",
+                "ACCOUNTNO",
+                "drive_link",
+                "OFFICER_NO",
+            ],
             "template_variables": template_vars,
             "auto_template_variables": auto_template_vars,
             "required_fields": required_fields,
