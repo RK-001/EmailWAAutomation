@@ -8,11 +8,12 @@ Checks:
   1. Gmail SMTP authentication (live connection test)
   2. Row count vs Gmail 500/day limit (warns at > max_emails_per_day)
   3. Google Drive quota (warns if < 500 MB free) — skipped in mock mode
-  4. AiSensy API key reachability — skipped in mock mode
+  4. Meta WhatsApp API credentials validation — skipped in mock mode
   5. Template file exists and is readable
   6. Output and log folders are writable
 """
 
+import json
 import os
 import smtplib
 import ssl
@@ -160,46 +161,94 @@ def check_drive_ready(
         return False, str(exc)
 
 
-# ── AiSensy preflight ────────────────────────────────────────────────────────
+# ── Meta WhatsApp preflight ──────────────────────────────────────────────────
 
-def check_aisensy_reachability(api_key: str) -> tuple[bool, str]:
+def check_meta_whatsapp_connection(
+    phone_number_id: str,
+    access_token: str,
+    api_version: str = "v21.0",
+    disable_ssl_verify: bool = False
+) -> tuple[bool, str]:
     """
-    Lightweight connectivity check for AiSensy API endpoint.
-    Does NOT send a message — just checks the endpoint responds.
+    Validate Meta WhatsApp Business API credentials.
+    Tests connectivity and token validity by querying the phone number info.
+
+    Args:
+        phone_number_id:   Meta WhatsApp Business Phone Number ID
+        access_token:      Meta WhatsApp Business API access token
+        api_version:       Meta Graph API version (default: v21.0)
+        disable_ssl_verify: Disable SSL verification for corporate proxies
 
     Returns:
-        (True, "")       → API endpoint reachable
-        (False, message) → connection error
+        (True, "")       → API credentials valid
+        (False, message) → connection error or invalid credentials
     """
-    if not api_key:
-        return False, "AiSensy API key is not configured."
+    if not phone_number_id:
+        return False, "Meta Phone Number ID is not configured."
+    if not access_token:
+        return False, "Meta Access Token is not configured."
+    
     try:
-        # HEAD request — no message sent, just checks reachability.
-        # We use urllib here because on some Windows machines `requests`
-        # may fail SSL verification while the OS trust store works fine.
-        req = urllib.request.Request(
-            "https://backend.aisensy.com/campaign/t1/api/v2",
-            method="HEAD",
+        # Query phone number info endpoint to validate credentials
+        # This is a lightweight GET request that doesn't send messages
+        api_url = (
+            f"https://graph.facebook.com/{api_version}/{phone_number_id}"
+            "?fields=id,verified_name,display_phone_number"
         )
-        ctx = create_ssl_context()
-        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+        
+        req = urllib.request.Request(
+            api_url,
+            method="GET",
+        )
+        req.add_header("Authorization", f"Bearer {access_token}")
+        
+        ctx = create_ssl_context(disable_verify=disable_ssl_verify)
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
             status_code = getattr(resp, "status", 200)
-        if status_code in (200, 401, 403, 404, 405):
-            return True, ""
-        return False, f"AiSensy endpoint returned unexpected status: {status_code}"
+            raw_body = resp.read().decode("utf-8", errors="replace")
+        
+        if status_code == 200:
+            # Parse response to verify it's valid
+            try:
+                data = json.loads(raw_body) if raw_body else {}
+                if "id" in data or "verified_name" in data:
+                    return True, ""
+                return False, "Meta API returned unexpected response format."
+            except Exception:
+                return False, "Meta API returned unreadable response."
+        
+        return False, f"Meta API returned status {status_code}"
+        
     except urllib.error.HTTPError as exc:
-        if exc.code in (200, 401, 403, 404, 405):
-            return True, ""
-        return False, f"AiSensy endpoint returned unexpected status: {exc.code}"
+        status_code = exc.code
+        try:
+            raw_body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            err_data = json.loads(raw_body) if raw_body else {}
+            error_msg = err_data.get("error", {}).get("message", "") or str(exc)
+        except Exception:
+            error_msg = str(exc)
+        
+        if status_code == 401:
+            return False, "Invalid Meta Access Token. Please check your token."
+        elif status_code == 403:
+            return False, (
+                "Meta token does not have permission to access this phone number. "
+                "Check that the system user is assigned to the WhatsApp account and "
+                "has whatsapp_business_management / whatsapp_business_messaging."
+            )
+        elif status_code == 404:
+            return False, "Invalid Phone Number ID or WhatsApp Business account not found."
+        return False, f"Meta API error ({status_code}): {error_msg}"
+    
     except TimeoutError:
-        return False, "AiSensy API connection timed out."
+        return False, "Meta API connection timed out."
     except ssl.SSLError as exc:
-        return False, f"AiSensy SSL error: {exc}"
+        return False, f"Meta API SSL error: {exc}"
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
-        return False, f"Cannot reach AiSensy API: {reason}"
+        return False, f"Cannot reach Meta API: {reason}"
     except Exception as exc:
-        return False, f"AiSensy connectivity error: {exc}"
+        return False, f"Meta API connectivity error: {exc}"
 
 
 # ── File system preflight ────────────────────────────────────────────────────
@@ -294,14 +343,18 @@ def run_preflight(
     else:
         _report("Google Drive", True, "Skipped (mock mode)")
 
-    # 6. AiSensy reachability (only if not in mock mode)
-    aisensy_cfg = config.get("aisensy", {})
-    if not aisensy_cfg.get("mock_mode", True):
+    # 6. Meta WhatsApp API (only if not in mock mode)
+    meta_cfg = config.get("meta_whatsapp", {})
+    if not meta_cfg.get("mock_mode", True):
         if on_progress:
-            on_progress("Checking AiSensy connectivity...")
-        ok, msg = check_aisensy_reachability(aisensy_cfg.get("api_key", ""))
-        _report("AiSensy API", ok, msg)
+            on_progress("Checking Meta WhatsApp API...")
+        ok, msg = check_meta_whatsapp_connection(
+            meta_cfg.get("phone_number_id", ""),
+            meta_cfg.get("access_token", ""),
+            meta_cfg.get("api_version", "v21.0"),
+        )
+        _report("Meta WhatsApp API", ok, msg)
     else:
-        _report("AiSensy API", True, "Skipped (mock mode)")
+        _report("Meta WhatsApp API", True, "Skipped (mock mode)")
 
     return results

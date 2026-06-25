@@ -31,14 +31,24 @@ def get_merged_ca_bundle_path() -> Optional[str]:
         return None
 
 
-def create_ssl_context() -> ssl.SSLContext:
+def create_ssl_context(disable_verify: bool = False) -> ssl.SSLContext:
     """
     Create an SSL context that prefers the merged Windows/certifi CA bundle.
 
     Falls back to Python's default trust configuration when the merge helper is
     unavailable. This keeps HTTPS calls working in normal and corporate-proxy
     Windows environments without disabling certificate verification.
+
+    Args:
+        disable_verify: If True, disables SSL certificate verification.
+                       Use only in corporate environments with SSL inspection.
     """
+    if disable_verify:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    
     ca_bundle = get_merged_ca_bundle_path()
     if ca_bundle:
         return ssl.create_default_context(cafile=ca_bundle)

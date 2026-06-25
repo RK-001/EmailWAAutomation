@@ -41,11 +41,18 @@ for /f "tokens=*" %%v in ('py -3 -m PyInstaller --version') do echo PyInstaller:
 :: ── Clean previous build ──────────────────────────────────────────────────────
 echo.
 echo [1/5] Checking Python package dependencies...
-py -3 -c "import customtkinter, openpyxl, docxtpl, win32com.client, googleapiclient.discovery, google_auth_httplib2, google_auth_oauthlib.flow" >nul 2>&1
+py -3 -c "import customtkinter, openpyxl, docxtpl, win32com.client, googleapiclient.discovery, google_auth_httplib2, google_auth_oauthlib.flow, certifi" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Required Python packages are missing.
     echo         Run: py -3 -m pip install -r requirements.txt
     exit /b 1
+)
+:: certifi_win32 is optional but recommended on Windows for corporate proxies
+py -3 -c "import certifi_win32" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [WARN]  python-certifi-win32 not installed ^(optional, helps with corp proxies^)
+) else (
+    echo       certifi_win32 OK.
 )
 echo       Dependencies OK.
 
@@ -101,6 +108,14 @@ if exist "README.md" copy /y "README.md" "dist\NoticeAutomation\README.md" >nul
 
 :: Copy icon if present
 if exist "icon.ico" copy /y "icon.ico" "dist\NoticeAutomation\icon.ico" >nul
+
+:: Copy sample data if present (optional — helps users test immediately)
+if exist "sample" (
+    if not exist "dist\NoticeAutomation\sample" mkdir "dist\NoticeAutomation\sample"
+    xcopy /y /q "sample\*.*" "dist\NoticeAutomation\sample\" >nul 2>&1
+)
+
+echo       Done.
 
 echo.
 echo ============================================================

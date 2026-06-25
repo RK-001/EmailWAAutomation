@@ -61,6 +61,13 @@ _EMAIL_DELAY_SEC = 5          # Gmail guidelines: ~5 sec between sends
 _WA_DELAY_MIN_SEC = 3         # Min WhatsApp inter-message delay
 _WA_DELAY_MAX_SEC = 5         # Max WhatsApp inter-message delay
 _DEFAULT_WA_TEMPLATE_PARAMS = ("NAME", "ACCOUNTNO", "drive_link", "OFFICER_NO")
+_STRICT_WA_TEMPLATE_FIELDS = {"drive_link"}
+_WA_COMPAT_FIELD_ALIASES = {
+    "ACCOUNTNO": ("BANK_ACCOUNT_NO",),
+    "OFFICER_NO": ("OFFICER_MOBILE",),
+    "EMAILID": ("EMAIL_ID",),
+    "MOBILENO": ("MOBILE_NO",),
+}
 
 class BatchRunner:
     """
@@ -581,7 +588,7 @@ class BatchRunner:
 
                 # ── Send Email ────────────────────────────────────────────────
                 if row_send_email:
-                    email_addr = row.get("EMAILID", "")
+                    email_addr = _resolve_row_value(row, "EMAILID")
                     email_ok, email_msg = validate_email(email_addr)
                     if not email_ok:
                         email_status = "failed"
@@ -613,14 +620,11 @@ class BatchRunner:
 
                 # ── Send WhatsApp ─────────────────────────────────────────────
                 if row_send_whatsapp:
-                    phone = row.get("MOBILENO", "")
+                    phone = _resolve_row_value(row, "MOBILENO")
                     phone_ok, phone_msg = validate_phone(phone)
                     if not phone_ok:
                         wa_status = "failed"
                         wa_error = phone_msg
-                    elif not drive_link:
-                        wa_status = "failed"
-                        wa_error = "Drive link is missing — Google Drive upload may have failed."
                     else:
                         template_params, param_error = _build_whatsapp_template_params(
                             profile,
@@ -630,8 +634,8 @@ class BatchRunner:
                             wa_status = "failed"
                             wa_error = param_error
                         else:
-                            account_no = _value_or_na(row.get("ACCOUNTNO"))
-                            contact_no = _value_or_na(row.get("OFFICER_NO"))
+                            account_no = _value_or_na(_resolve_row_value(row, "ACCOUNTNO"))
+                            contact_no = _value_or_na(_resolve_row_value(row, "OFFICER_NO"))
                             ok, err = wa_sender.send_notice_notification(
                                 phone=normalize_phone(phone),
                                 name=recipient_name,
@@ -833,33 +837,84 @@ def _merge_profile_meta_whatsapp_config(meta_config: dict, profile: dict) -> dic
 
 def _build_whatsapp_template_params(profile: dict, row: dict) -> tuple[list[str], str]:
     """Resolve WhatsApp body params from the profile-configured field order."""
-    configured_params = profile.get("wa_template_params") or list(_DEFAULT_WA_TEMPLATE_PARAMS)
-    if not isinstance(configured_params, (list, tuple)):
-        return [], "WhatsApp template params must be a list of field names."
+    configured_params, config_error = _get_whatsapp_template_fields(profile)
+    if config_error:
+        return [], config_error
 
     resolved_params: list[str] = []
     missing_fields: list[str] = []
+    blank_required_fields: list[str] = []
 
-    for raw_name in configured_params:
-        if not isinstance(raw_name, str) or not raw_name.strip():
-            return [], "WhatsApp template params contain an empty field name."
-
-        field_name = raw_name.strip()
-        if field_name not in row:
+    for field_name in configured_params:
+        value, matched_field = _resolve_row_value_with_source(row, field_name)
+        if matched_field is None:
             missing_fields.append(field_name)
             continue
 
-        resolved_params.append(_value_or_na(row.get(field_name)))
+        text = str(value).strip() if value is not None else ""
+        if not text and field_name in _STRICT_WA_TEMPLATE_FIELDS:
+            blank_required_fields.append(field_name)
+            continue
+
+        resolved_params.append(_value_or_na(value))
 
     if missing_fields:
         return [], (
             "WhatsApp template params reference missing fields: "
             + ", ".join(missing_fields)
         )
-    if not resolved_params:
-        return [], "WhatsApp template params are empty."
+    if blank_required_fields:
+        if "drive_link" in blank_required_fields:
+            return [], "Drive link is missing — Google Drive upload may have failed."
+        return [], (
+            "WhatsApp template params require non-empty values for: "
+            + ", ".join(blank_required_fields)
+        )
 
     return resolved_params, ""
+
+
+def _get_whatsapp_template_fields(profile: dict) -> tuple[list[str], str]:
+    """
+    Return the configured WhatsApp placeholder fields for a profile.
+
+    Missing config keeps the legacy 4-placeholder behavior so older profiles
+    continue to work. Explicit None or [] means the template uses no variables.
+    """
+    if "wa_template_params" not in profile:
+        return list(_DEFAULT_WA_TEMPLATE_PARAMS), ""
+
+    raw_params = profile.get("wa_template_params")
+    if raw_params is None:
+        return [], ""
+    if not isinstance(raw_params, (list, tuple)):
+        return [], "WhatsApp template params must be a list of field names."
+
+    normalized_params: list[str] = []
+    for raw_name in raw_params:
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            return [], "WhatsApp template params contain an empty field name."
+        normalized_params.append(raw_name.strip())
+
+    return normalized_params, ""
+
+
+def _resolve_row_value(row: dict, field_name: str):
+    """Return a row value using compatible field aliases when needed."""
+    value, _matched_field = _resolve_row_value_with_source(row, field_name)
+    return value
+
+
+def _resolve_row_value_with_source(row: dict, field_name: str) -> tuple[object, str | None]:
+    """Return `(value, matched_field_name)` for a requested row field."""
+    if field_name in row:
+        return row.get(field_name), field_name
+
+    for alias in _WA_COMPAT_FIELD_ALIASES.get(field_name, ()):
+        if alias in row:
+            return row.get(alias), alias
+
+    return None, None
 
 
 

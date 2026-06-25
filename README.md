@@ -66,7 +66,7 @@ If Gmail test says authentication failed:
 
 1. Meta Business Manager account (business.facebook.com)
 2. Verified WhatsApp Business phone number
-3. Approved message template with TEXT header and 4 body variables
+3. Approved message template with the body variable count your profile expects
 
 ### Setup Steps
 
@@ -116,6 +116,10 @@ If Gmail test says authentication failed:
    Dear {{1}}, an important communication regarding your account {{2}} has been shared with you. Please review: {{3}}. For queries: {{4}}.
    ```
 
+   The body can also use fewer placeholders or none at all. Keep the profile's
+   `wa_template_params` in the same order and count as the approved Meta
+   template.
+
    **FOOTER (optional):**
    ```
    - [Your Firm Name]
@@ -136,6 +140,9 @@ The app sends these values to the template body:
 - `{{4}}` = Officer/contact phone number (from OFFICER_NO column)
 
 The PDF link is sent as clickable text in the message body.
+Indian mobile numbers in Excel can be stored as `9876543210`,
+`919876543210`, `+919876543210`, or `09876543210`; the app normalizes them
+before sending.
 
 ### Configure in the App
 
@@ -168,8 +175,9 @@ The PDF link is sent as clickable text in the message body.
 - Template was rejected (check Meta dashboard for status)
 
 **Error: "Template parameter count mismatch"**
-- Your template has different number of variables than expected
-- Ensure template body has exactly 4 variables: {{1}}, {{2}}, {{3}}, {{4}}
+- Your Meta template variable count does not match this profile's `wa_template_params`
+- Keep `wa_template_params` in the same order and with the same count as the template body placeholders
+- Use an empty `wa_template_params` list when the template body has no variables
 
 If the test says Meta API cannot be reached, check internet/proxy access.
 If it mentions SSL/certificate, install requirements again and ensure
@@ -249,9 +257,12 @@ The app also shows these app fields:
 - `NAME`
 - `EMAILID`
 - `MOBILENO`
+- `ACCOUNTNO`
+- `OFFICER_NO`
 
 `NAME` is required. `EMAILID` is needed for email sending. `MOBILENO` is needed
-for WhatsApp sending.
+for WhatsApp sending. `ACCOUNTNO` and `OFFICER_NO` are useful when your
+WhatsApp template needs them even if your Word template does not.
 
 ## Word Template Rules
 

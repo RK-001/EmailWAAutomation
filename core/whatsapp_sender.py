@@ -11,14 +11,8 @@ Meta WhatsApp Business Cloud API:
 
 Approved template (must match what is registered in Meta Business Manager):
   HEADER: TEXT type (e.g., "Legal Communication") - static, no variables
-  BODY: "Dear {{1}}, an important communication regarding your account {{2}} has been
-         shared with you. Please review: {{3}}. For queries: {{4}}."
-
-Template variables (all in body):
-  {{1}} → Recipient name (e.g., "Ramesh Kumar")
-  {{2}} → Account number
-  {{3}} → Google Drive shareable link (PDF)
-  {{4}} → Officer/contact phone number
+  BODY: Configurable per profile. Some templates may use 0 body variables,
+        while others may use 3, 4, or any other Meta-approved count.
 
 MOCK MODE: When access_token is empty or mock_mode=True, logs the message
            without making any API call. Used during development.
@@ -67,6 +61,7 @@ class WhatsAppSender:
         self._api_version: str = meta_whatsapp_config.get("api_version", "v21.0")
         self._template_language: str = meta_whatsapp_config.get("template_language", "en")
         self._mock_mode: bool = meta_whatsapp_config.get("mock_mode", True) or not self._access_token
+        self._disable_ssl_verify: bool = meta_whatsapp_config.get("disable_ssl_verify", False)
         self._firm_name: str = firm_name or "Law Firm"
         
         # Build API URL
@@ -85,30 +80,29 @@ class WhatsAppSender:
         template_params: list[str] | None = None,
     ) -> tuple[bool, str]:
         """
-        Send the pre-approved Meta WhatsApp template with link in body.
-
-        Template (registered in Meta Business Manager):
-          HEADER: TEXT (static, e.g., "Legal Communication")
-          BODY: "Dear {{1}}, an important communication regarding your account {{2}} has been
-                 shared with you. Please review: {{3}}. For queries: {{4}}."
+        Send the configured Meta WhatsApp template.
 
         Args:
             phone:       10-digit Indian mobile number (no prefix).
-            name:        Recipient name ({{1}}).
-            account_no:  Account/case number ({{2}}).
-            drive_link:  Google Drive PDF URL ({{3}}) - sent as text in body.
-            contact_no:  Contact phone for queries ({{4}}).
+            name:        Legacy fallback value for older 4-placeholder templates.
+            account_no:  Legacy fallback value for older 4-placeholder templates.
+            drive_link:  Legacy fallback value for older 4-placeholder templates.
+            contact_no:  Legacy fallback value for older 4-placeholder templates.
             batch_id:    Used for logging/tracking (not sent to Meta API).
 
         Returns:
             (True, "")       → message queued successfully
             (False, message) → API error with description
         """
-        # Normalize phone: must be E.164 with "+" for Meta (+91XXXXXXXXXX)
+        # Normalize to the digits-only recipient format Meta examples use.
         phone_e164 = self._normalize_phone(phone)
-        resolved_template_params = template_params or [name, account_no, drive_link, contact_no]
-        if not resolved_template_params:
-            return False, "WhatsApp template params are empty."
+        resolved_template_params = self._resolve_template_params(
+            template_params,
+            name=name,
+            account_no=account_no,
+            drive_link=drive_link,
+            contact_no=contact_no,
+        )
 
         if self._mock_mode:
             return self._mock_send(
@@ -134,27 +128,7 @@ class WhatsAppSender:
         template_params: list[str],
     ) -> tuple[bool, str]:
         """Make the actual Meta WhatsApp Cloud API call."""
-        # Build Meta API payload
-        # Template has TEXT header (static, no params) and BODY with {{1}}, {{2}}, {{3}}, {{4}}
-        payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": phone,
-            "type": "template",
-            "template": {
-                "name": self._template_name,
-                "language": {"code": self._template_language},
-                "components": [
-                    {
-                        "type": "body",
-                        "parameters": [
-                            {"type": "text", "text": str(param)}
-                            for param in template_params
-                        ]
-                    }
-                ]
-            }
-        }
+        payload = self._build_template_payload(phone, template_params)
         
         try:
             req = urllib.request.Request(
@@ -166,7 +140,7 @@ class WhatsAppSender:
                 },
                 method="POST",
             )
-            ctx = create_ssl_context()
+            ctx = create_ssl_context(disable_verify=self._disable_ssl_verify)
             with urllib.request.urlopen(req, context=ctx, timeout=_REQUEST_TIMEOUT_SEC) as response:
                 status_code = getattr(response, "status", 200)
                 raw_body = response.read().decode("utf-8", errors="replace")
@@ -223,6 +197,34 @@ class WhatsAppSender:
 
         return False, f"Meta API returned {status_code}: {error_msg}"
 
+    def _build_template_payload(
+        self,
+        phone: str,
+        template_params: list[str],
+    ) -> dict:
+        """Build the Meta WhatsApp template payload for the configured params."""
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": phone,
+            "type": "template",
+            "template": {
+                "name": self._template_name,
+                "language": {"code": self._template_language},
+            },
+        }
+        if template_params:
+            payload["template"]["components"] = [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": str(param)}
+                        for param in template_params
+                    ],
+                }
+            ]
+        return payload
+
     def _mock_send(
         self,
         phone: str,
@@ -237,11 +239,13 @@ class WhatsAppSender:
         # In mock mode, just validate that all required params are non-empty
         if not phone:
             return False, "Phone number is empty."
-        if not name:
-            return False, "Recipient name is empty."
-        resolved_template_params = template_params or [name, account_no, drive_link, contact_no]
-        if not resolved_template_params:
-            return False, "WhatsApp template params are empty."
+        resolved_template_params = self._resolve_template_params(
+            template_params,
+            name=name,
+            account_no=account_no,
+            drive_link=drive_link,
+            contact_no=contact_no,
+        )
         # Log what would have been sent (visible in test output / log tab)
         print(
             f"[MOCK Meta WhatsApp] To: {phone} | Template: {self._template_name or '<unset>'} "
@@ -250,21 +254,39 @@ class WhatsAppSender:
         return True, ""
 
     @staticmethod
+    def _resolve_template_params(
+        template_params: list[str] | None,
+        *,
+        name: str,
+        account_no: str,
+        drive_link: str,
+        contact_no: str,
+    ) -> list[str]:
+        """
+        Resolve the effective template params.
+
+        `None` keeps legacy behavior for older callers.
+        An explicit empty list means the template has no body placeholders.
+        """
+        if template_params is None:
+            return [name, account_no, drive_link, contact_no]
+        return [str(param) for param in template_params]
+
+    @staticmethod
     def _normalize_phone(phone: str) -> str:
         """
-        Convert phone to Meta E.164 format: +91XXXXXXXXXX.
-        Accepts: 9876543210 | +919876543210 | 919876543210 | 09876543210
+        Convert phone to Meta recipient format: country code + number, digits only.
+
+        Meta Cloud API examples use the recipient number without a leading "+"
+        in the `to` field, for example `15551234567`. We store Indian numbers
+        as 10-digit mobile values in the app, so this normalizes them to
+        `91XXXXXXXXXX`.
         """
-        p = phone.strip().replace(" ", "").replace("-", "")
-        # Remove existing prefix if present
-        if p.startswith("+91"):
-            p = p[3:]
-        elif p.startswith("91") and len(p) == 12:
-            p = p[2:]
-        elif p.startswith("0") and len(p) == 11:
-            p = p[1:]  # Remove leading 0 (common in Indian numbers)
-        # Return as +91 + 10-digit number (Meta requires + prefix)
-        if len(p) == 10:
-            return "+91" + p
-        # If already formatted or invalid length, return as-is with + prefix
-        return "+" + p if not p.startswith("+") else p
+        digits = "".join(ch for ch in str(phone or "").strip() if ch.isdigit())
+        if len(digits) == 10:
+            return "91" + digits
+        if len(digits) == 11 and digits.startswith("0"):
+            return "91" + digits[1:]
+        if len(digits) == 12 and digits.startswith("91"):
+            return digits
+        return digits

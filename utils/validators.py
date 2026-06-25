@@ -13,14 +13,14 @@ from docxtpl import DocxTemplate
 # Phone validation
 # ---------------------------------------------------------------------------
 
-# Accepts: 10-digit Indian mobile (with optional +91 / 91 prefix)
-_PHONE_RE = re.compile(r"^(?:\+91|91)?([6-9]\d{9})$")
+# Accepts: 10-digit Indian mobile (with optional +91 / 91 / 0 prefix)
+_PHONE_RE = re.compile(r"^(?:\+91|91|0)?([6-9]\d{9})$")
 
 
 def validate_phone(phone: str) -> tuple[bool, str]:
     """
     Validate an Indian mobile number.
-    Accepts formats: 9876543210 | +919876543210 | 919876543210
+    Accepts formats: 9876543210 | +919876543210 | 919876543210 | 09876543210
 
     Returns:
         (True, "")        → valid

@@ -48,6 +48,8 @@ _OPERATIONAL_FIELDS: list[tuple[str, str, str, bool]] = [
     ("NAME", "Customer Name", "Used in preview, file names, email and WhatsApp", True),
     ("EMAILID", "Email Address", "Used when email sending is enabled", False),
     ("MOBILENO", "Mobile Number", "Used when WhatsApp sending is enabled", False),
+    ("ACCOUNTNO", "Account Number", "Useful for email/WhatsApp even if not in the Word template", False),
+    ("OFFICER_NO", "Officer Phone", "Useful for WhatsApp even if not in the Word template", False),
 ]
 
 _KNOWN_FIELD_LABELS = {
@@ -88,6 +90,25 @@ def _ordered_unique(values: list[str]) -> list[str]:
         seen.add(value)
         result.append(value)
     return result
+
+
+def _parse_whatsapp_template_params(raw_value: str) -> tuple[list[str], str]:
+    """
+    Parse a comma-separated WhatsApp placeholder field list.
+
+    A blank value means the template has no body placeholders.
+    """
+    text = (raw_value or "").strip()
+    if not text:
+        return [], ""
+
+    params: list[str] = []
+    for piece in text.split(","):
+        field_name = piece.strip()
+        if not field_name:
+            return [], "WhatsApp params must be comma-separated field names without empty items."
+        params.append(field_name)
+    return params, ""
 
 
 class ProfilesTab:
@@ -224,6 +245,22 @@ class ProfilesTab:
 
         self._email_body_text = ctk.CTkTextbox(self._scroll, width=_ENTRY_W + 80, height=90)
         self._email_body_text.grid(row=row, column=1, sticky="w", pady=_PAD_Y)
+        row += 1
+
+        self._wa_template_params_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "WA Template Params:",
+            self._wa_template_params_var,
+            row,
+            placeholder="NAME, ACCOUNTNO, drive_link, OFFICER_NO",
+        )
+        ctk.CTkLabel(
+            self._scroll,
+            text="Comma-separated Meta body placeholders in order. Leave blank if the template has no variables.",
+            font=ctk.CTkFont(size=11),
+            text_color="gray60",
+            anchor="w",
+        ).grid(row=row, column=0, columnspan=3, sticky="w", padx=_PAD_X, pady=(0, 8))
         row += 1
 
         row = self._section_header("MAPPING  (Template variable -> Excel column)", row)
@@ -386,6 +423,7 @@ class ProfilesTab:
             "Dear {NAME},\n\nPlease find attached an important communication "
             "regarding your account {ACCOUNTNO}.\n\nRegards,\n{FIRM_NAME}",
         )
+        self._wa_template_params_var.set("NAME, ACCOUNTNO, drive_link, OFFICER_NO")
         self._template_hint_var.set(
             "Select a .docx template. The app will read {{VARIABLES}} automatically."
         )
@@ -421,6 +459,13 @@ class ProfilesTab:
         self._email_subject_var.set(profile.get("email_subject") or "")
         self._email_body_text.delete("1.0", "end")
         self._email_body_text.insert("1.0", profile.get("email_body") or "")
+        if "wa_template_params" not in profile:
+            self._wa_template_params_var.set("NAME, ACCOUNTNO, drive_link, OFFICER_NO")
+        else:
+            saved_params = profile.get("wa_template_params")
+            self._wa_template_params_var.set(
+                ", ".join(saved_params) if isinstance(saved_params, (list, tuple)) else ""
+            )
 
         col_mapping = profile.get("column_mapping") or {}
         scanned = self._scan_template_variables(
@@ -583,6 +628,12 @@ class ProfilesTab:
 
         email_body = self._email_body_text.get("1.0", "end").rstrip("\n")
         existing_profile = self._cfg.get_profile(profile_key) or {}
+        wa_template_params, wa_params_error = _parse_whatsapp_template_params(
+            self._wa_template_params_var.get()
+        )
+        if wa_params_error:
+            self._save_status_var.set(wa_params_error)
+            return
         profile_data = {
             **existing_profile,
             "display_name": self._display_name_var.get().strip() or profile_key,
@@ -590,12 +641,7 @@ class ProfilesTab:
             "notice_type": self._notice_type_var.get(),
             "email_subject": self._email_subject_var.get().strip(),
             "email_body": email_body,
-            "wa_template_params": existing_profile.get("wa_template_params") or [
-                "NAME",
-                "ACCOUNTNO",
-                "drive_link",
-                "OFFICER_NO",
-            ],
+            "wa_template_params": wa_template_params,
             "template_variables": template_vars,
             "auto_template_variables": auto_template_vars,
             "required_fields": required_fields,

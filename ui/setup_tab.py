@@ -16,6 +16,7 @@ The "Test" buttons perform live checks (Gmail SMTP, Meta API token validation).
 
 from __future__ import annotations
 
+import importlib
 import os
 import threading
 from typing import TYPE_CHECKING
@@ -35,6 +36,29 @@ _STATUS_W = 220     # Status indicator width
 _PAD_X = 20         # Horizontal section padding
 _PAD_Y = 6          # Row vertical padding
 _SECTION_PAD = (14, 6)   # (top, bottom) padding for section headers
+
+
+def _load_meta_preflight_checker():
+    """
+    Resolve the Meta API test function from utils.preflight.
+
+    This keeps the Setup tab tolerant of older/stale project copies where the
+    checker may have been renamed or omitted, and lets the UI show a friendly
+    status instead of crashing the worker thread.
+    """
+    preflight = importlib.import_module("utils.preflight")
+    for attr_name in (
+        "check_meta_whatsapp_connection",
+        "check_meta_api_connection",
+        "check_whatsapp_connection",
+    ):
+        checker = getattr(preflight, attr_name, None)
+        if callable(checker):
+            return checker
+    raise ImportError(
+        "Meta API checker not found in utils.preflight. "
+        "Expected check_meta_whatsapp_connection()."
+    )
 
 
 class SetupTab:
@@ -151,6 +175,15 @@ class SetupTab:
             self._meta_mock_var,
             row,
             note="Disable when ready for production.",
+        )
+
+        # SSL verification toggle (for corporate proxies)
+        self._meta_disable_ssl_var = ctk.BooleanVar(value=False)
+        row = self._toggle_row(
+            "Disable SSL Verification:",
+            self._meta_disable_ssl_var,
+            row,
+            note="Enable only for corporate proxy/firewall SSL issues.",
         )
 
         self._meta_status_var = ctk.StringVar(value="")
@@ -453,6 +486,7 @@ class SetupTab:
             self._cfg.get("meta_whatsapp.template_language") or "en"
         )
         self._meta_mock_var.set(bool(self._cfg.get("meta_whatsapp.mock_mode", True)))
+        self._meta_disable_ssl_var.set(bool(self._cfg.get("meta_whatsapp.disable_ssl_verify", False)))
         self._drive_auth_mode_var.set(
             self._cfg.get("google_drive.auth_mode") or "oauth_user"
         )
@@ -510,6 +544,7 @@ class SetupTab:
             self._meta_template_language_var.get().strip() or "en",
         )
         self._cfg.set("meta_whatsapp.mock_mode", self._meta_mock_var.get())
+        self._cfg.set("meta_whatsapp.disable_ssl_verify", self._meta_disable_ssl_var.get())
         self._cfg.set("google_drive.auth_mode", self._drive_auth_mode_var.get())
         self._cfg.set(
             "google_drive.oauth_client_json_path",
@@ -572,13 +607,21 @@ class SetupTab:
 
     def _do_test_meta_whatsapp(self) -> None:
         """Background: Validate Meta API credentials."""
-        from utils.preflight import check_meta_whatsapp_connection
-        # Pass current credentials
-        phone_number_id = self._meta_phone_id_var.get().strip()
-        access_token = self._meta_access_token_var.get().strip()
-        api_version = self._meta_api_version_var.get().strip() or "v21.0"
-        ok, msg = check_meta_whatsapp_connection(phone_number_id, access_token, api_version)
-        status = "✅  Meta API: Connected" if ok else f"❌  {msg}"
+        try:
+            check_meta_whatsapp_connection = _load_meta_preflight_checker()
+            phone_number_id = self._meta_phone_id_var.get().strip()
+            access_token = self._meta_access_token_var.get().strip()
+            api_version = self._meta_api_version_var.get().strip() or "v21.0"
+            disable_ssl_verify = self._meta_disable_ssl_var.get()
+            ok, msg = check_meta_whatsapp_connection(
+                phone_number_id,
+                access_token,
+                api_version,
+                disable_ssl_verify,
+            )
+            status = "✅  Meta API: Connected" if ok else f"❌  {msg}"
+        except Exception as exc:
+            status = f"❌  Meta API test unavailable: {exc}"
         self._app.after(0, lambda: self._meta_status_var.set(status))
 
     def _test_drive(self) -> None:
