@@ -60,7 +60,6 @@ from utils.validators import normalize_phone, validate_email, validate_phone
 _EMAIL_DELAY_SEC = 5          # Gmail guidelines: ~5 sec between sends
 _WA_DELAY_MIN_SEC = 3         # Min WhatsApp inter-message delay
 _WA_DELAY_MAX_SEC = 5         # Max WhatsApp inter-message delay
-_DEFAULT_WA_TEMPLATE_PARAMS = ("NAME", "ACCOUNTNO", "drive_link", "OFFICER_NO")
 _WA_COMPAT_FIELD_ALIASES = {
     "ACCOUNTNO": ("BANK_ACCOUNT_NO",),
     "OFFICER_NO": ("OFFICER_MOBILE",),
@@ -633,14 +632,8 @@ class BatchRunner:
                             wa_status = "failed"
                             wa_error = param_error
                         else:
-                            account_no = _value_or_na(_resolve_row_value(row, "ACCOUNTNO"))
-                            contact_no = _value_or_na(_resolve_row_value(row, "OFFICER_NO"))
                             ok, err = wa_sender.send_notice_notification(
                                 phone=normalize_phone(phone),
-                                name=recipient_name,
-                                account_no=account_no,
-                                drive_link=drive_link,
-                                contact_no=contact_no,
                                 batch_id=self._batch_id,
                                 template_params=template_params,
                             )
@@ -859,12 +852,12 @@ def _get_whatsapp_template_fields(profile: dict) -> tuple[list[str], str]:
     """
     Return the configured WhatsApp placeholder fields for a profile.
 
-    Missing config keeps the legacy 4-placeholder behavior so older profiles
-    continue to work. Explicit None or [] means the template uses no variables.
+    Missing config returns empty list (template with no variables).
+    Explicit None or [] means the template uses no variables.
     Empty entries are skipped silently.
     """
     if "wa_template_params" not in profile:
-        return list(_DEFAULT_WA_TEMPLATE_PARAMS), ""
+        return [], ""
 
     raw_params = profile.get("wa_template_params")
     if raw_params is None:

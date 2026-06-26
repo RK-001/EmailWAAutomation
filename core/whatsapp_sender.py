@@ -72,10 +72,6 @@ class WhatsAppSender:
     def send_notice_notification(
         self,
         phone: str,
-        name: str,
-        account_no: str,
-        drive_link: str,
-        contact_no: str,
         batch_id: str,
         template_params: list[str] | None = None,
     ) -> tuple[bool, str]:
@@ -83,12 +79,10 @@ class WhatsAppSender:
         Send the configured Meta WhatsApp template.
 
         Args:
-            phone:       10-digit Indian mobile number (no prefix).
-            name:        Legacy fallback value for older 4-placeholder templates.
-            account_no:  Legacy fallback value for older 4-placeholder templates.
-            drive_link:  Legacy fallback value for older 4-placeholder templates.
-            contact_no:  Legacy fallback value for older 4-placeholder templates.
-            batch_id:    Used for logging/tracking (not sent to Meta API).
+            phone:            10-digit Indian mobile number (no prefix).
+            batch_id:         Used for logging/tracking (not sent to Meta API).
+            template_params:  List of resolved placeholder values in template order.
+                              None or [] means template has no body variables.
 
         Returns:
             (True, "")       → message queued successfully
@@ -96,23 +90,13 @@ class WhatsAppSender:
         """
         # Normalize to the digits-only recipient format Meta examples use.
         phone_e164 = self._normalize_phone(phone)
-        resolved_template_params = self._resolve_template_params(
-            template_params,
-            name=name,
-            account_no=account_no,
-            drive_link=drive_link,
-            contact_no=contact_no,
-        )
+        resolved_template_params = self._resolve_template_params(template_params)
 
         if self._mock_mode:
             return self._mock_send(
                 phone_e164,
-                name,
-                account_no,
-                drive_link,
-                contact_no,
                 batch_id,
-                template_params=resolved_template_params,
+                resolved_template_params,
             )
 
         return self._api_send(
@@ -228,48 +212,28 @@ class WhatsAppSender:
     def _mock_send(
         self,
         phone: str,
-        name: str,
-        account_no: str,
-        drive_link: str,
-        contact_no: str,
         batch_id: str,
-        template_params: list[str] | None = None,
+        template_params: list[str],
     ) -> tuple[bool, str]:
         """Simulate a send in mock mode — no real API call."""
-        # In mock mode, just validate that all required params are non-empty
         if not phone:
             return False, "Phone number is empty."
-        resolved_template_params = self._resolve_template_params(
-            template_params,
-            name=name,
-            account_no=account_no,
-            drive_link=drive_link,
-            contact_no=contact_no,
-        )
         # Log what would have been sent (visible in test output / log tab)
         print(
             f"[MOCK Meta WhatsApp] To: {phone} | Template: {self._template_name or '<unset>'} "
-            f"| Params: {resolved_template_params} | Batch: {batch_id}"
+            f"| Params: {template_params} | Batch: {batch_id}"
         )
         return True, ""
 
     @staticmethod
-    def _resolve_template_params(
-        template_params: list[str] | None,
-        *,
-        name: str,
-        account_no: str,
-        drive_link: str,
-        contact_no: str,
-    ) -> list[str]:
+    def _resolve_template_params(template_params: list[str] | None) -> list[str]:
         """
         Resolve the effective template params.
 
-        `None` keeps legacy behavior for older callers.
-        An explicit empty list means the template has no body placeholders.
+        `None` or empty list means the template has no body placeholders.
         """
         if template_params is None:
-            return [name, account_no, drive_link, contact_no]
+            return []
         return [str(param) for param in template_params]
 
     @staticmethod
