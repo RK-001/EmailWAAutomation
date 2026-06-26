@@ -340,6 +340,15 @@ class BatchRunner:
                 if not folder_ok:
                     self._post_progress(start_index, total, "generate", f"Drive: {folder_msg}")
 
+            # ── Pre-warm template cache ───────────────────────────────────────
+            # Load template into memory ONCE before processing rows
+            from core.doc_generator import preload_template
+            try:
+                preload_template(template_path)
+            except Exception as exc:
+                self._post_error(f"Template preload failed: {exc}")
+                return
+
             # ── Init Word COM converter ───────────────────────────────────────
             converter = WordPdfConverter(restart_every=batch_restart_every)
 

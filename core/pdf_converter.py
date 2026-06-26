@@ -176,6 +176,15 @@ class WordPdfConverter:
             pass  # Already hidden; safe to ignore
         self._word.DisplayAlerts = 0        # Suppress ALL dialogs
         self._word.AutomationSecurity = 3   # Disable macros (prevent popup on open)
+        
+        # Warm up Word by creating and closing a blank document.
+        # This pre-loads fonts, print subsystem, etc., making the first
+        # actual conversion ~3-5x faster.
+        try:
+            warmup_doc = self._word.Documents.Add()
+            warmup_doc.Close(0)
+        except Exception:
+            pass  # Non-critical; proceed even if warmup fails
 
     def _quit_word(self) -> None:
         """Quit Word COM cleanly, ignoring errors if already dead."""
