@@ -216,8 +216,6 @@ class WhatsAppSender:
         template_params: list[str],
     ) -> tuple[bool, str]:
         """Simulate a send in mock mode — no real API call."""
-        if not phone:
-            return False, "Phone number is empty."
         # Log what would have been sent (visible in test output / log tab)
         print(
             f"[MOCK Meta WhatsApp] To: {phone} | Template: {self._template_name or '<unset>'} "

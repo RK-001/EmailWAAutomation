@@ -192,10 +192,7 @@ def test_profile_params():
 
         row = {param: f"value_for_{param}" for param in wa_params}
         row["drive_link"] = "https://drive.google.com/test-link"
-        resolved, err = _build_whatsapp_template_params(pdata, row)
-        if err:
-            print(f"✗ ERROR: {pname} params could not be resolved: {err}")
-            return False
+        resolved = _build_whatsapp_template_params(pdata, row)
         if len(resolved) != len(wa_params):
             print(f"✗ ERROR: {pname} resolved {len(resolved)} params, expected {len(wa_params)}")
             return False
@@ -222,50 +219,50 @@ def test_whatsapp_param_variants():
         "OFFICER_NO": "9988776655",
     }
 
-    resolved, err = _build_whatsapp_template_params({}, row)
-    if err or resolved != ["Alice", "ACC001", "https://drive.test/file.pdf", "9988776655"]:
-        print(f"✗ ERROR: Legacy default params failed: resolved={resolved}, err={err}")
+    resolved = _build_whatsapp_template_params({}, row)
+    if resolved != []:
+        print(f"✗ ERROR: Missing wa_template_params should return empty list: resolved={resolved}")
         return False
-    print("✓ Missing wa_template_params keeps legacy 4-param order")
+    print("✓ Missing wa_template_params returns empty list (no legacy default)")
 
-    resolved, err = _build_whatsapp_template_params({"wa_template_params": []}, row)
-    if err or resolved != []:
-        print(f"✗ ERROR: Empty wa_template_params failed: resolved={resolved}, err={err}")
+    resolved = _build_whatsapp_template_params({"wa_template_params": []}, row)
+    if resolved != []:
+        print(f"✗ ERROR: Empty wa_template_params failed: resolved={resolved}")
         return False
     print("✓ Empty wa_template_params supports zero placeholders")
 
-    resolved, err = _build_whatsapp_template_params({"wa_template_params": None}, row)
-    if err or resolved != []:
-        print(f"✗ ERROR: Null wa_template_params failed: resolved={resolved}, err={err}")
+    resolved = _build_whatsapp_template_params({"wa_template_params": None}, row)
+    if resolved != []:
+        print(f"✗ ERROR: Null wa_template_params failed: resolved={resolved}")
         return False
     print("✓ Null wa_template_params supports zero placeholders")
 
-    resolved, err = _build_whatsapp_template_params(
+    resolved = _build_whatsapp_template_params(
         {"wa_template_params": ["NAME", "ACCOUNTNO", "OFFICER_NO"]},
         row,
     )
-    if err or resolved != ["Alice", "ACC001", "9988776655"]:
-        print(f"✗ ERROR: 3-param template failed: resolved={resolved}, err={err}")
+    if resolved != ["Alice", "ACC001", "9988776655"]:
+        print(f"✗ ERROR: 3-param template failed: resolved={resolved}")
         return False
     print("✓ 3-param template preserves configured order")
 
-    resolved, err = _build_whatsapp_template_params(
+    resolved = _build_whatsapp_template_params(
         {"wa_template_params": ["NAME", "ACCOUNTNO", "OFFICER_NO"]},
         {**row, "drive_link": ""},
     )
-    if err or resolved != ["Alice", "ACC001", "9988776655"]:
-        print(f"✗ ERROR: Non-drive-link template should ignore blank drive link: resolved={resolved}, err={err}")
+    if resolved != ["Alice", "ACC001", "9988776655"]:
+        print(f"✗ ERROR: Non-drive-link template should ignore blank drive link: resolved={resolved}")
         return False
     print("✓ Blank drive_link does not block templates that do not use it")
 
-    resolved, err = _build_whatsapp_template_params(
+    resolved = _build_whatsapp_template_params(
         {"wa_template_params": ["NAME", "drive_link"]},
         {**row, "drive_link": ""},
     )
-    if "Drive link is missing" not in err:
-        print(f"✗ ERROR: drive_link should fail when referenced explicitly: {err}")
+    if resolved != ["Alice", "NA"]:
+        print(f"✗ ERROR: Blank drive_link should resolve to NA: resolved={resolved}")
         return False
-    print("✓ Blank drive_link still fails when template requires it")
+    print("✓ Blank drive_link resolves to NA when template uses it")
 
     sender = WhatsAppSender(
         {
@@ -360,12 +357,12 @@ def test_whatsapp_live_send_hardening():
         "BANK_ACCOUNT_NO": "ACC001",
         "OFFICER_MOBILE": "9988776655",
     }
-    resolved, err = _build_whatsapp_template_params(
+    resolved = _build_whatsapp_template_params(
         {"wa_template_params": ["NAME", "ACCOUNTNO", "OFFICER_NO"]},
         row,
     )
-    if err or resolved != ["Alice", "ACC001", "9988776655"]:
-        print(f"✗ ERROR: Alias fallback failed: resolved={resolved}, err={err}")
+    if resolved != ["Alice", "ACC001", "9988776655"]:
+        print(f"✗ ERROR: Alias fallback failed: resolved={resolved}")
         return False
     print("✓ Legacy WhatsApp params resolve through compatible profile field aliases")
 

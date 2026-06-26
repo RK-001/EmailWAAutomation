@@ -624,23 +624,16 @@ class BatchRunner:
                         wa_status = "failed"
                         wa_error = phone_msg
                     else:
-                        template_params, param_error = _build_whatsapp_template_params(
-                            profile,
-                            row,
+                        template_params = _build_whatsapp_template_params(profile, row)
+                        ok, err = wa_sender.send_notice_notification(
+                            phone=normalize_phone(phone),
+                            batch_id=self._batch_id,
+                            template_params=template_params,
                         )
-                        if param_error:
-                            wa_status = "failed"
-                            wa_error = param_error
-                        else:
-                            ok, err = wa_sender.send_notice_notification(
-                                phone=normalize_phone(phone),
-                                batch_id=self._batch_id,
-                                template_params=template_params,
-                            )
-                            wa_status = "sent" if ok else "failed"
-                            wa_error = err
-                            # Random inter-message delay (Meta rate-limit safety)
-                            time.sleep(random.uniform(delay_min, delay_max))
+                        wa_status = "sent" if ok else "failed"
+                        wa_error = err
+                        # Random inter-message delay (Meta rate-limit safety)
+                        time.sleep(random.uniform(delay_min, delay_max))
 
                 # ── Log + checkpoint ──────────────────────────────────────────
                 self._logger.log_row(
@@ -827,16 +820,14 @@ def _merge_profile_meta_whatsapp_config(meta_config: dict, profile: dict) -> dic
     return merged
 
 
-def _build_whatsapp_template_params(profile: dict, row: dict) -> tuple[list[str], str]:
+def _build_whatsapp_template_params(profile: dict, row: dict) -> list[str]:
     """
     Resolve WhatsApp body params from the profile-configured field order.
 
     Missing/blank fields resolve to "NA" - no validation errors.
     This allows flexible template configurations.
     """
-    configured_params, config_error = _get_whatsapp_template_fields(profile)
-    if config_error:
-        return [], config_error
+    configured_params = _get_whatsapp_template_fields(profile)
 
     resolved_params: list[str] = []
 
@@ -845,25 +836,26 @@ def _build_whatsapp_template_params(profile: dict, row: dict) -> tuple[list[str]
         # Use NA for missing or blank fields - no validation errors
         resolved_params.append(_value_or_na(value))
 
-    return resolved_params, ""
+    return resolved_params
 
 
-def _get_whatsapp_template_fields(profile: dict) -> tuple[list[str], str]:
+def _get_whatsapp_template_fields(profile: dict) -> list[str]:
     """
     Return the configured WhatsApp placeholder fields for a profile.
 
     Missing config returns empty list (template with no variables).
     Explicit None or [] means the template uses no variables.
-    Empty entries are skipped silently.
+    Empty entries are skipped silently (matches parsing behavior).
     """
     if "wa_template_params" not in profile:
-        return [], ""
+        return []
 
     raw_params = profile.get("wa_template_params")
     if raw_params is None:
-        return [], ""
+        return []
     if not isinstance(raw_params, (list, tuple)):
-        return [], "WhatsApp template params must be a list of field names."
+        # Type error caught by profile validation, return empty for safety
+        return []
 
     normalized_params: list[str] = []
     for raw_name in raw_params:
@@ -871,7 +863,7 @@ def _get_whatsapp_template_fields(profile: dict) -> tuple[list[str], str]:
             normalized_params.append(raw_name.strip())
         # Skip empty/invalid entries silently
 
-    return normalized_params, ""
+    return normalized_params
 
 
 def _resolve_row_value(row: dict, field_name: str):

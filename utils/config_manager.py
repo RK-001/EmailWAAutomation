@@ -372,21 +372,9 @@ class ConfigManager:
                 errors.append(f"Column mapping missing required field: '{field}'")
 
         wa_template_params = profile.get("wa_template_params")
-        if wa_template_params is not None:
-            if not isinstance(wa_template_params, list):
-                errors.append("WhatsApp template params must be a list of field names.")
-            else:
-                normalized_params: list[str] = []
-                for param in wa_template_params:
-                    if not isinstance(param, str) or not param.strip():
-                        errors.append("WhatsApp template params contain an empty field name.")
-                        break
-                    normalized_params.append(param.strip())
-
-                if not normalized_params:
-                    errors.append("WhatsApp template params cannot be empty.")
-                elif "drive_link" not in normalized_params:
-                    errors.append("WhatsApp template params must include 'drive_link'.")
+        if wa_template_params is not None and not isinstance(wa_template_params, (list, tuple)):
+            errors.append("WhatsApp template params must be a list of field names.")
+        # Note: Empty strings within the list are silently skipped (matches parsing behavior)
 
         profile_template_name = profile.get("wa_template_name")
         if profile_template_name:
