@@ -97,6 +97,7 @@ def _parse_whatsapp_template_params(raw_value: str) -> tuple[list[str], str]:
     Parse a comma-separated WhatsApp placeholder field list.
 
     A blank value means the template has no body placeholders.
+    Empty items are skipped (no validation error).
     """
     text = (raw_value or "").strip()
     if not text:
@@ -105,9 +106,8 @@ def _parse_whatsapp_template_params(raw_value: str) -> tuple[list[str], str]:
     params: list[str] = []
     for piece in text.split(","):
         field_name = piece.strip()
-        if not field_name:
-            return [], "WhatsApp params must be comma-separated field names without empty items."
-        params.append(field_name)
+        if field_name:  # Skip empty items silently
+            params.append(field_name)
     return params, ""
 
 
@@ -247,9 +247,43 @@ class ProfilesTab:
         self._email_body_text.grid(row=row, column=1, sticky="w", pady=_PAD_Y)
         row += 1
 
+        row = self._section_header("WHATSAPP SETTINGS", row)
+
+        self._wa_template_name_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Meta Template Name:",
+            self._wa_template_name_var,
+            row,
+            placeholder="your_approved_template_name",
+        )
+        ctk.CTkLabel(
+            self._scroll,
+            text="The template name approved in Meta Business Manager. Required for live sends.",
+            font=ctk.CTkFont(size=11),
+            text_color="gray60",
+            anchor="w",
+        ).grid(row=row, column=0, columnspan=3, sticky="w", padx=_PAD_X, pady=(0, 8))
+        row += 1
+
+        self._wa_template_language_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Template Language:",
+            self._wa_template_language_var,
+            row,
+            placeholder="en",
+        )
+        ctk.CTkLabel(
+            self._scroll,
+            text="Language code for the template (e.g. 'en', 'en_US'). Defaults to 'en' if blank.",
+            font=ctk.CTkFont(size=11),
+            text_color="gray60",
+            anchor="w",
+        ).grid(row=row, column=0, columnspan=3, sticky="w", padx=_PAD_X, pady=(0, 8))
+        row += 1
+
         self._wa_template_params_var = ctk.StringVar()
         row = self._labeled_entry(
-            "WA Template Params:",
+            "Template Params:",
             self._wa_template_params_var,
             row,
             placeholder="NAME, ACCOUNTNO, drive_link, OFFICER_NO",
@@ -423,6 +457,8 @@ class ProfilesTab:
             "Dear {NAME},\n\nPlease find attached an important communication "
             "regarding your account {ACCOUNTNO}.\n\nRegards,\n{FIRM_NAME}",
         )
+        self._wa_template_name_var.set("")
+        self._wa_template_language_var.set("")
         self._wa_template_params_var.set("NAME, ACCOUNTNO, drive_link, OFFICER_NO")
         self._template_hint_var.set(
             "Select a .docx template. The app will read {{VARIABLES}} automatically."
@@ -459,6 +495,8 @@ class ProfilesTab:
         self._email_subject_var.set(profile.get("email_subject") or "")
         self._email_body_text.delete("1.0", "end")
         self._email_body_text.insert("1.0", profile.get("email_body") or "")
+        self._wa_template_name_var.set(profile.get("wa_template_name") or "")
+        self._wa_template_language_var.set(profile.get("wa_template_language") or "")
         if "wa_template_params" not in profile:
             self._wa_template_params_var.set("NAME, ACCOUNTNO, drive_link, OFFICER_NO")
         else:
@@ -641,6 +679,8 @@ class ProfilesTab:
             "notice_type": self._notice_type_var.get(),
             "email_subject": self._email_subject_var.get().strip(),
             "email_body": email_body,
+            "wa_template_name": self._wa_template_name_var.get().strip(),
+            "wa_template_language": self._wa_template_language_var.get().strip(),
             "wa_template_params": wa_template_params,
             "template_variables": template_vars,
             "auto_template_variables": auto_template_vars,

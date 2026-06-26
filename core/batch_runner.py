@@ -61,7 +61,6 @@ _EMAIL_DELAY_SEC = 5          # Gmail guidelines: ~5 sec between sends
 _WA_DELAY_MIN_SEC = 3         # Min WhatsApp inter-message delay
 _WA_DELAY_MAX_SEC = 5         # Max WhatsApp inter-message delay
 _DEFAULT_WA_TEMPLATE_PARAMS = ("NAME", "ACCOUNTNO", "drive_link", "OFFICER_NO")
-_STRICT_WA_TEMPLATE_FIELDS = {"drive_link"}
 _WA_COMPAT_FIELD_ALIASES = {
     "ACCOUNTNO": ("BANK_ACCOUNT_NO",),
     "OFFICER_NO": ("OFFICER_MOBILE",),
@@ -836,40 +835,22 @@ def _merge_profile_meta_whatsapp_config(meta_config: dict, profile: dict) -> dic
 
 
 def _build_whatsapp_template_params(profile: dict, row: dict) -> tuple[list[str], str]:
-    """Resolve WhatsApp body params from the profile-configured field order."""
+    """
+    Resolve WhatsApp body params from the profile-configured field order.
+
+    Missing/blank fields resolve to "NA" - no validation errors.
+    This allows flexible template configurations.
+    """
     configured_params, config_error = _get_whatsapp_template_fields(profile)
     if config_error:
         return [], config_error
 
     resolved_params: list[str] = []
-    missing_fields: list[str] = []
-    blank_required_fields: list[str] = []
 
     for field_name in configured_params:
         value, matched_field = _resolve_row_value_with_source(row, field_name)
-        if matched_field is None:
-            missing_fields.append(field_name)
-            continue
-
-        text = str(value).strip() if value is not None else ""
-        if not text and field_name in _STRICT_WA_TEMPLATE_FIELDS:
-            blank_required_fields.append(field_name)
-            continue
-
+        # Use NA for missing or blank fields - no validation errors
         resolved_params.append(_value_or_na(value))
-
-    if missing_fields:
-        return [], (
-            "WhatsApp template params reference missing fields: "
-            + ", ".join(missing_fields)
-        )
-    if blank_required_fields:
-        if "drive_link" in blank_required_fields:
-            return [], "Drive link is missing — Google Drive upload may have failed."
-        return [], (
-            "WhatsApp template params require non-empty values for: "
-            + ", ".join(blank_required_fields)
-        )
 
     return resolved_params, ""
 
@@ -880,6 +861,7 @@ def _get_whatsapp_template_fields(profile: dict) -> tuple[list[str], str]:
 
     Missing config keeps the legacy 4-placeholder behavior so older profiles
     continue to work. Explicit None or [] means the template uses no variables.
+    Empty entries are skipped silently.
     """
     if "wa_template_params" not in profile:
         return list(_DEFAULT_WA_TEMPLATE_PARAMS), ""
@@ -892,9 +874,9 @@ def _get_whatsapp_template_fields(profile: dict) -> tuple[list[str], str]:
 
     normalized_params: list[str] = []
     for raw_name in raw_params:
-        if not isinstance(raw_name, str) or not raw_name.strip():
-            return [], "WhatsApp template params contain an empty field name."
-        normalized_params.append(raw_name.strip())
+        if isinstance(raw_name, str) and raw_name.strip():
+            normalized_params.append(raw_name.strip())
+        # Skip empty/invalid entries silently
 
     return normalized_params, ""
 
