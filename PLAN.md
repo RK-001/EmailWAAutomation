@@ -6,7 +6,9 @@
 **Business Model:** Open-source + Paid Services
 
 ---
-
+curl -X GET "https://graph.facebook.com/v21.0/wamid.HBgMOTE5ODIzODAzMzgxFQIAERgSOEVFNUE2RkMwQ0FCRDZGREFCAA==" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+  
 ## 1. Problem Statement
 
 A law firm handles multiple bank/financial clients. For each case batch:
