@@ -34,25 +34,27 @@ datas = (
     + collect_data_files("certifi")
     + [
         (os.path.join(SPEC_DIR, "templates"), "templates"),
-        (os.path.join(SPEC_DIR, "config.json"), "."),
+        (os.path.join(SPEC_DIR, "factory_config", "config.json"), "."),
     ]
 )
 
 a = Analysis(
     [MAIN_PY],
     pathex=[SPEC_DIR],
+    hookspath=[os.path.join(SPEC_DIR, "hooks")],
     datas=datas,
     hiddenimports=hidden_imports,
     excludes=[
-        "pytest", "unittest", "pdb", "pydoc",
+        "pytest","pdb", "pydoc",
         "matplotlib", "numpy", "pandas", "scipy", "torch", "tensorflow",
         # Optional GUI/dev modules that pywin32/Pillow hooks can pull in.
         "Pythonwin", "win32ui",
+        # Platform-specific darkdetect probes; this app is built for Windows.
+        "darkdetect._linux_detect", "darkdetect._mac_detect",
         "PIL._avif", "PIL.AvifImagePlugin",
         "PIL._webp", "PIL.WebPImagePlugin",
-        "PIL.ImageQt", "PIL.ImageTk",
-        "lxml.objectify", "lxml.html", "lxml.html.diff",
-        "lxml.html._difflib", "lxml.isoschematron", "lxml.sax",
+        "PIL.ImageQt",
+        "lxml.objectify", "lxml.html", "lxml.isoschematron", "lxml.sax",
     ],
     noarchive=False,
 )
