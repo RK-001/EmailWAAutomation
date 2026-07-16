@@ -1,0 +1,115 @@
+{
+  "gmail": {
+    "sender_email": "",
+    "app_password": ""
+  },
+  "meta_whatsapp": {
+    "phone_number_id": "",
+    "access_token": "",
+    "template_name": "",
+    "api_version": "v21.0",
+    "template_language": "en",
+    "mock_mode": true,
+    "disable_ssl_verify": false
+  },
+  "google_drive": {
+    "auth_mode": "oauth_user",
+    "oauth_client_json_path": "oauth_credentials.json",
+    "oauth_token_json_path": "token.json",
+    "service_account_json_path": "drive_credentials.json",
+    "upload_folder_id": "",
+    "auto_delete_days": 30,
+    "mock_mode": true
+  },
+  "profiles": {
+    "Sample_Profile": {
+      "display_name": "Sample Profile (Demo)",
+      "template_path": "templates/sample_notice.docx",
+      "notice_type": "EMI_DEFAULT",
+      "email_subject": "Important Communication - {NAME}",
+      "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {ACCOUNTNO}.\n\nFor any queries, please contact us at the number below.\n\nRegards,\n{FIRM_NAME}",
+      "wa_template_params": [
+        "NAME",
+        "ACCOUNTNO",
+        "drive_link",
+        "OFFICER_NO"
+      ],
+      "template_variables": [
+        "ACCOUNTNO",
+        "AMOUNT",
+        "BRANCH",
+        "CHEQUE_DATE",
+        "FIRM_NAME",
+        "LAWYER_NAME",
+        "NAME",
+        "NOTICE_DATE",
+        "OFFICER_NO",
+        "REASON"
+      ],
+      "auto_template_variables": [
+        "FIRM_NAME",
+        "LAWYER_NAME",
+        "NOTICE_DATE"
+      ],
+      "required_fields": [
+        "NAME"
+      ],
+      "column_mapping": {
+        "ACCOUNTNO": "ACCOUNTNO",
+        "AMOUNT": "AMOUNT",
+        "BRANCH": "BRANCH",
+        "CHEQUE_DATE": "CHEQUE_DATE",
+        "NAME": "NAME",
+        "OFFICER_NO": "OFFICER_NO",
+        "REASON": "REASON",
+        "EMAILID": "EMAILID",
+        "MOBILENO": "MOBILENO"
+      }
+    },
+    "HDFC_PSS_Notice": {
+      "display_name": "HDFC PSS Notice",
+      "template_path": "templates/Notice_Template.docx",
+      "notice_type": "PRE_LITIGATION",
+      "email_subject": "Important Communication",
+      "email_body": "Dear  {BANK_ACCOUNT_NO},\n\nPFA an important communication regarding your account  {CustNAME} and {BOUNCE_DATE} {NAME} , {BOUNCE_REASON}.\n\nRegards,\n{FIRM_NAME}",
+      "wa_template_params": [],
+      "template_variables": [
+        "AAN",
+        "Bounce_Amount",
+        "Masked_Card",
+        "Name",
+        "BANK_ACCOUNT_NO",
+        "BOUNCE_DATE",
+        "BOUNCE_REASON",
+        "NOTICE_DATE"
+      ],
+      "auto_template_variables": [
+        "NOTICE_DATE"
+      ],
+      "required_fields": [],
+      "column_mapping": {
+        "BANK_ACCOUNT_NO": "ACCOUNT NO",
+        "BOUNCE_DATE": "Claim Date / Bounce Date",
+        "BOUNCE_REASON": "Product / BOUNCE REASON",
+        "BUSINESS_TYPE": "Business type",
+        "NAME": "CustNAME",
+        "EMAILID": "EMAIL ID",
+        "MOBILENO": "MOBILENO"
+      },
+      "wa_template_name": "hellow_world",
+      "wa_template_language": "en_US"
+    }
+  },
+  "settings": {
+    "output_folder": "./output",
+    "log_folder": "./logs",
+    "batch_restart_every": 50,
+    "send_delay_min_sec": 3,
+    "send_delay_max_sec": 5,
+    "max_emails_per_day": 450,
+    "drive_cleanup_enabled": true,
+    "lawyer_name": "",
+    "firm_name": ""
+  },
+  "_comment": "Factory starter config. Enter real credentials from the Setup tab after first run."
+}
