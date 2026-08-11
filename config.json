@@ -21,6 +21,15 @@
     "auto_delete_days": 30,
     "mock_mode": false
   },
+    "amazon_s3": {
+    "bucket_name": "gk-file",
+    "region": "ap-south-1",
+    "access_key_id": "AKIATURQXZEDXRINUWHZ",
+    "secret_access_key": "+VG2vlBLfQQV6lrmAmLv2ktxzH0WIww6WmnrA0a8",
+    "folder_prefix": "notices/",
+    "mock_mode": false,
+    "public_read": true
+  },
   "profiles": {
     "Sample_Profile": {
       "display_name": "Sample Profile (Demo)",
