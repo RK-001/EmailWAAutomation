@@ -18,6 +18,8 @@ import tempfile
 from copy import deepcopy
 from pathlib import Path
 
+from utils.atomic_io import atomic_replace
+
 
 # ── Default config template ─────────────────────────────────────────────────
 
@@ -33,6 +35,7 @@ _DEFAULT_CONFIG: dict = {
         "api_version": "v21.0",
         "template_language": "en",
         "mock_mode": True,
+        "disable_ssl_verify": False,
     },
     "google_drive": {
         "auth_mode": "oauth_user",
@@ -42,6 +45,15 @@ _DEFAULT_CONFIG: dict = {
         "upload_folder_id": "",
         "auto_delete_days": 30,
         "mock_mode": True,
+    },
+    "amazon_s3": {
+        "bucket_name": "",
+        "region": "ap-south-1",
+        "access_key_id": "",
+        "secret_access_key": "",
+        "folder_prefix": "notices/",
+        "mock_mode": True,
+        "public_read": True,
     },
     "profiles": {},
     "settings": {
@@ -106,9 +118,9 @@ def validate_meta_whatsapp_config(meta_config: dict, label: str = "Meta WhatsApp
         return []
 
     errors = []
-    if not meta_config.get("phone_number_id", ""):
+    if not str(meta_config.get("phone_number_id", "") or "").strip():
         errors.append(f"{label} Phone Number ID is not set.")
-    if not meta_config.get("access_token", ""):
+    if not str(meta_config.get("access_token", "") or "").strip():
         errors.append(f"{label} Access Token is not set.")
     errors.extend(_validate_meta_template_name(meta_config.get("template_name", ""), label))
     errors.extend(
@@ -150,6 +162,7 @@ class ConfigManager:
                 loaded = json.load(f)
             # Merge loaded data over defaults (preserves any added keys)
             self._data = self._merge_defaults(loaded, deepcopy(_DEFAULT_CONFIG))
+            self._migrate_legacy_keys()
         except (json.JSONDecodeError, OSError):
             # Backup corrupted file and start fresh
             bak_path = self.config_path + ".bak"
@@ -168,7 +181,7 @@ class ConfigManager:
                 json.dump(self._data, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_path, self.config_path)
+            atomic_replace(tmp_path, self.config_path)
         except Exception:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
@@ -199,7 +212,9 @@ class ConfigManager:
         keys = dot_path.split(".")
         node = self._data
         for key in keys[:-1]:
-            node = node.setdefault(key, {})
+            if not isinstance(node.get(key), dict):
+                node[key] = {}
+            node = node[key]
         node[keys[-1]] = value
 
     def get_all(self) -> dict:
@@ -233,10 +248,11 @@ class ConfigManager:
         abs_path = os.path.abspath(raw_path)
         base_dir = os.path.abspath(self.get_base_dir())
         try:
+            common_path = os.path.commonpath([base_dir, abs_path])
+            if common_path != base_dir:
+                return abs_path
             rel_path = os.path.relpath(abs_path, base_dir)
         except ValueError:
-            return abs_path
-        if rel_path.startswith(".."):
             return abs_path
         return rel_path.replace("\\", "/")
 
@@ -389,6 +405,26 @@ class ConfigManager:
                 )
             )
 
+        upload_provider = profile.get("upload_provider") or "google_drive"
+        if upload_provider not in {"google_drive", "amazon_s3"}:
+            errors.append("Upload provider must be either 'google_drive' or 'amazon_s3'.")
+
+        return errors
+
+    def validate_amazon_s3(self) -> list[str]:
+        """Validate Amazon S3 settings (skipped in mock mode)."""
+        if self.get("amazon_s3.mock_mode", True):
+            return []
+
+        errors = []
+        if not str(self.get("amazon_s3.bucket_name", "") or "").strip():
+            errors.append("Amazon S3 bucket name is not set.")
+        if not str(self.get("amazon_s3.region", "") or "").strip():
+            errors.append("Amazon S3 region is not set.")
+        if not str(self.get("amazon_s3.access_key_id", "") or "").strip():
+            errors.append("Amazon S3 access key ID is not set.")
+        if not str(self.get("amazon_s3.secret_access_key", "") or "").strip():
+            errors.append("Amazon S3 secret access key is not set.")
         return errors
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -406,3 +442,17 @@ class ConfigManager:
             else:
                 result[key] = value
         return result
+
+    def _migrate_legacy_keys(self) -> None:
+        """Normalize older config keys without changing their meaning."""
+        profiles = self._data.get("profiles", {})
+        if not isinstance(profiles, dict):
+            return
+        for profile in profiles.values():
+            if not isinstance(profile, dict):
+                continue
+            legacy_language = profile.pop("wa_teamplate_language", None)
+            if legacy_language and not profile.get("wa_template_language"):
+                profile["wa_template_language"] = legacy_language
+            # Keep existing profiles backward-compatible with current Google flow.
+            profile.setdefault("upload_provider", "google_drive")

@@ -17,6 +17,7 @@ import json
 import os
 import smtplib
 import ssl
+import tempfile
 from typing import Callable
 import urllib.error
 import urllib.request
@@ -161,6 +162,20 @@ def check_drive_ready(
         return False, str(exc)
 
 
+def check_s3_ready(s3_config: dict) -> tuple[bool, str]:
+    """Build S3 uploader and verify configured bucket access."""
+    try:
+        from core.cloud_uploader import S3Uploader
+
+        uploader = S3Uploader(s3_config)
+        ok, msg = uploader.test_bucket_access()
+        if not ok:
+            return False, msg
+        return True, msg or "Amazon S3 ready."
+    except Exception as exc:
+        return False, str(exc)
+
+
 # ── Meta WhatsApp preflight ──────────────────────────────────────────────────
 
 def check_meta_whatsapp_connection(
@@ -270,15 +285,20 @@ def check_folders_writable(output_folder: str, log_folder: str) -> tuple[bool, s
     Creates them if they don't exist.
     """
     for folder in (output_folder, log_folder):
+        test_file = ""
         try:
             os.makedirs(folder, exist_ok=True)
-            # Test write by creating and removing a temp file
-            test_file = os.path.join(folder, ".write_test")
-            with open(test_file, "w") as f:
+            fd, test_file = tempfile.mkstemp(prefix=".write_test_", dir=folder)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write("test")
-            os.unlink(test_file)
         except OSError as exc:
             return False, f"Cannot write to folder '{folder}': {exc}"
+        finally:
+            if test_file and os.path.exists(test_file):
+                try:
+                    os.unlink(test_file)
+                except OSError:
+                    pass
     return True, ""
 
 
@@ -352,6 +372,7 @@ def run_preflight(
             meta_cfg.get("phone_number_id", ""),
             meta_cfg.get("access_token", ""),
             meta_cfg.get("api_version", "v21.0"),
+            meta_cfg.get("disable_ssl_verify", False),
         )
         _report("Meta WhatsApp API", ok, msg)
     else:

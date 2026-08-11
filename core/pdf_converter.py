@@ -58,7 +58,10 @@ class WordPdfConverter:
             restart_every: Restart the Word COM process every N files
                            to prevent memory leak hangs.
         """
-        self.restart_every = restart_every
+        try:
+            self.restart_every = max(1, int(restart_every))
+        except (TypeError, ValueError):
+            self.restart_every = 50
         self._convert_count = 0
         self._word = None
         self._start_word()

@@ -211,6 +211,22 @@ class ProfilesTab:
         ).grid(row=row, column=1, sticky="w", pady=_PAD_Y)
         row += 1
 
+        ctk.CTkLabel(
+            self._scroll,
+            text="Upload Provider:",
+            anchor="e",
+            width=_LABEL_W,
+        ).grid(row=row, column=0, sticky="e", padx=(_PAD_X, 8), pady=_PAD_Y)
+
+        self._upload_provider_var = ctk.StringVar(value="google_drive")
+        ctk.CTkOptionMenu(
+            self._scroll,
+            values=["google_drive", "amazon_s3"],
+            variable=self._upload_provider_var,
+            width=_ENTRY_W,
+        ).grid(row=row, column=1, sticky="w", pady=_PAD_Y)
+        row += 1
+
         row = self._section_header("WORD TEMPLATE", row)
         self._template_var = ctk.StringVar()
         row = self._template_picker_row(row)
@@ -462,6 +478,7 @@ class ProfilesTab:
         self._wa_template_name_var.set("")
         self._wa_template_language_var.set("")
         self._wa_template_params_var.set("")
+        self._upload_provider_var.set("google_drive")
         self._template_hint_var.set(
             "Select a .docx template. The app will read {{VARIABLES}} automatically."
         )
@@ -493,6 +510,7 @@ class ProfilesTab:
         self._profile_name_var.set(profile_name)
         self._display_name_var.set(profile.get("display_name") or profile_name)
         self._notice_type_var.set(profile.get("notice_type") or VALID_NOTICE_TYPES[0])
+        self._upload_provider_var.set(profile.get("upload_provider") or "google_drive")
         self._template_var.set(profile.get("template_path") or "")
         self._email_subject_var.set(profile.get("email_subject") or "")
         self._email_body_text.delete("1.0", "end")
@@ -679,6 +697,8 @@ class ProfilesTab:
             "display_name": self._display_name_var.get().strip() or profile_key,
             "template_path": self._cfg.make_path_portable(raw_template_path),
             "notice_type": self._notice_type_var.get(),
+            # Bank-level routing flag. amazon_s3 skips Google upload in batch runner.
+            "upload_provider": self._upload_provider_var.get().strip() or "google_drive",
             "email_subject": self._email_subject_var.get().strip(),
             "email_body": email_body,
             "wa_template_name": self._wa_template_name_var.get().strip(),

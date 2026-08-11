@@ -27,6 +27,7 @@ _DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 _MOCK_URL_PREFIX = "https://drive.google.com/mock/"
 _AUTH_MODE_OAUTH = "oauth_user"
 _AUTH_MODE_SERVICE_ACCOUNT = "service_account"
+_MOCK_S3_URL_PREFIX = "https://s3.mock.amazonaws.com/"
 
 
 class DriveUploader:
@@ -147,18 +148,33 @@ class DriveUploader:
         try:
             from datetime import datetime, timedelta, timezone
             cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
-            cutoff_str = cutoff.isoformat()
+            cutoff_str = cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")
 
             query = (
                 f"'{self._folder_id}' in parents "
                 f"and createdTime < '{cutoff_str}' "
                 f"and trashed = false"
             )
-            resp = self._service.files().list(q=query, fields="files(id, name)").execute()
-            files = resp.get("files", [])
-            for file in files:
-                self._service.files().delete(fileId=file["id"]).execute()
-            return len(files)
+            deleted = 0
+            page_token = None
+            while True:
+                resp = self._service.files().list(
+                    q=query,
+                    fields="nextPageToken, files(id, name)",
+                    pageToken=page_token,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                ).execute()
+                for file in resp.get("files", []):
+                    self._service.files().delete(
+                        fileId=file["id"],
+                        supportsAllDrives=True,
+                    ).execute()
+                    deleted += 1
+                page_token = resp.get("nextPageToken")
+                if not page_token:
+                    break
+            return deleted
         except Exception:
             return 0
 
@@ -361,3 +377,127 @@ class DriveUploader:
             return f"{prefix}: Google Drive API connection timed out. Check internet/proxy/firewall access."
 
         return f"{prefix}: {text}"
+
+
+class S3Uploader:
+    """Upload PDF files to Amazon S3 and return public object URLs."""
+
+    def __init__(self, s3_config: dict):
+        self._mock_mode: bool = s3_config.get("mock_mode", True)
+        self._bucket_name: str = s3_config.get("bucket_name", "")
+        self._region: str = s3_config.get("region", "ap-south-1")
+        self._access_key_id: str = s3_config.get("access_key_id", "")
+        self._secret_access_key: str = s3_config.get("secret_access_key", "")
+        self._folder_prefix: str = (s3_config.get("folder_prefix", "") or "").strip()
+        self._public_read: bool = bool(s3_config.get("public_read", True))
+        self._client = None
+
+        if not self._mock_mode:
+            self._client = self._build_client()
+
+    def upload_pdf(self, pdf_path: str, display_name: str | None = None) -> str:
+        """Upload a PDF to Amazon S3 and return a clickable URL."""
+        if not os.path.exists(pdf_path):
+            raise FileNotFoundError(f"PDF not found for upload: {pdf_path}")
+
+        if self._mock_mode:
+            return self._mock_upload(pdf_path)
+
+        object_key = self._build_object_key(display_name)
+        extra_args = {"ContentType": "application/pdf"}
+        if self._public_read:
+            extra_args["ACL"] = "public-read"
+
+        try:
+            # Some modern buckets disable ACLs (Object Ownership enforced).
+            # In that case, retry without ACL and rely on bucket policy for public read.
+            try:
+                self._client.upload_file(
+                    Filename=pdf_path,
+                    Bucket=self._bucket_name,
+                    Key=object_key,
+                    ExtraArgs=extra_args,
+                )
+            except Exception as exc:
+                if self._public_read and self._is_acl_not_supported(exc):
+                    self._client.upload_file(
+                        Filename=pdf_path,
+                        Bucket=self._bucket_name,
+                        Key=object_key,
+                        ExtraArgs={"ContentType": "application/pdf"},
+                    )
+                else:
+                    raise
+            return self._build_public_url(object_key)
+        except Exception as exc:
+            raise RuntimeError(f"Amazon S3 upload failed: {exc}") from exc
+
+    def test_bucket_access(self) -> tuple[bool, str]:
+        """Check bucket access with current credentials."""
+        if self._mock_mode:
+            return True, "Mock mode - S3 bucket check skipped."
+        if not self._bucket_name:
+            return False, "Amazon S3 bucket name is not set."
+        try:
+            self._client.head_bucket(Bucket=self._bucket_name)
+            # Validate write/delete permissions so batch upload doesn't fail later.
+            probe_key = self._build_object_key(f".access_probe_{uuid.uuid4().hex}.txt")
+            self._client.put_object(
+                Bucket=self._bucket_name,
+                Key=probe_key,
+                Body=b"probe",
+                ContentType="text/plain",
+            )
+            self._client.delete_object(Bucket=self._bucket_name, Key=probe_key)
+            return True, f"S3 bucket ready: {self._bucket_name}"
+        except Exception as exc:
+            return False, f"Could not access S3 bucket: {exc}"
+
+    def _build_client(self):
+        """Build boto3 S3 client lazily to keep startup lightweight."""
+        import boto3
+
+        if not self._bucket_name:
+            raise ValueError("Amazon S3 bucket name is required.")
+        if not self._region:
+            raise ValueError("Amazon S3 region is required.")
+        if not self._access_key_id or not self._secret_access_key:
+            raise ValueError("Amazon S3 credentials are required.")
+
+        return boto3.client(
+            "s3",
+            region_name=self._region,
+            aws_access_key_id=self._access_key_id,
+            aws_secret_access_key=self._secret_access_key,
+        )
+
+    def _build_object_key(self, display_name: str | None) -> str:
+        """Build stable object key under optional prefix."""
+        safe_name = display_name or f"{uuid.uuid4().hex}.pdf"
+        prefix = self._folder_prefix.strip("/")
+        if prefix:
+            return f"{prefix}/{safe_name}"
+        return safe_name
+
+    def _build_public_url(self, object_key: str) -> str:
+        """Return regional public object URL for WhatsApp delivery."""
+        if self._region == "us-east-1":
+            return f"https://{self._bucket_name}.s3.amazonaws.com/{object_key}"
+        return f"https://{self._bucket_name}.s3.{self._region}.amazonaws.com/{object_key}"
+
+    @staticmethod
+    def _mock_upload(pdf_path: str) -> str:
+        mock_id = uuid.uuid4().hex
+        filename = os.path.basename(pdf_path)
+        return f"{_MOCK_S3_URL_PREFIX}{mock_id}/{filename}"
+
+    @staticmethod
+    def _is_acl_not_supported(exc: Exception) -> bool:
+        """Detect buckets where ACL headers are rejected by S3."""
+        text = str(exc)
+        lower = text.lower()
+        return (
+            "accesscontrollistnotsupported" in lower
+            or "bucket does not allow acls" in lower
+            or "acl" in lower and "not supported" in lower
+        )

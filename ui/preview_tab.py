@@ -126,9 +126,16 @@ class PreviewTab:
 
         self._send_email_var = ctk.BooleanVar(value=True)
         self._send_wa_var = ctk.BooleanVar(value=True)
+        self._upload_provider_var = ctk.StringVar(value="Upload Provider: google_drive")
 
         ctk.CTkCheckBox(opts_frame, text="📧  Send Email",    variable=self._send_email_var).pack(side="left", padx=(0, 16))
         ctk.CTkCheckBox(opts_frame, text="💬  Send WhatsApp", variable=self._send_wa_var).pack(side="left")
+        ctk.CTkLabel(
+            opts_frame,
+            textvariable=self._upload_provider_var,
+            font=ctk.CTkFont(size=11),
+            text_color="gray60",
+        ).pack(side="left", padx=(16, 0))
 
         # ── Table (scrollable) ────────────────────────────────────────────────
         self._table_frame = ctk.CTkScrollableFrame(parent, label_text="")
@@ -196,6 +203,10 @@ class PreviewTab:
                  f"|  {total} rows  |  {failed} generation error(s)",
             text_color=("black", "white") if not failed else "orange",
         )
+
+        profile = self._cfg.get_profile(profile_name) or {}
+        provider = profile.get("upload_provider") or "google_drive"
+        self._upload_provider_var.set(f"Upload Provider: {provider}")
 
         self._render_current_page()
         self._send_all_btn.configure(state="normal")

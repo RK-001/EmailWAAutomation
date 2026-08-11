@@ -243,6 +243,51 @@ class SetupTab:
             row,
         )
 
+        # ── Section: Amazon S3 ──────────────────────────────────────────────
+        row = self._section_header("AMAZON S3 SETTINGS", row)
+
+        self._s3_bucket_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Bucket Name:", self._s3_bucket_var, row,
+            placeholder="your-bucket-name",
+        )
+        self._s3_region_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Region:", self._s3_region_var, row,
+            placeholder="ap-south-1",
+        )
+        self._s3_access_key_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Access Key ID:", self._s3_access_key_var, row,
+            placeholder="AKIA...",
+        )
+        self._s3_secret_key_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Secret Access Key:", self._s3_secret_key_var, row,
+            placeholder="AWS Secret Access Key",
+            show="●",
+        )
+        self._s3_prefix_var = ctk.StringVar()
+        row = self._labeled_entry(
+            "Folder Prefix:", self._s3_prefix_var, row,
+            placeholder="notices/",
+        )
+        self._s3_mock_var = ctk.BooleanVar(value=True)
+        row = self._toggle_row(
+            "Mock Mode (no real upload):",
+            self._s3_mock_var,
+            row,
+            note="Disable when bucket + IAM credentials are ready.",
+        )
+
+        self._s3_status_var = ctk.StringVar(value="")
+        row = self._test_row(
+            "Test S3",
+            self._s3_status_var,
+            self._test_s3,
+            row,
+        )
+
         # ── Section: Advanced Settings ────────────────────────────────────────
         row = self._section_header("ADVANCED SETTINGS", row)
 
@@ -503,6 +548,12 @@ class SetupTab:
             self._cfg.get("google_drive.upload_folder_id") or ""
         )
         self._drive_mock_var.set(bool(self._cfg.get("google_drive.mock_mode", True)))
+        self._s3_bucket_var.set(self._cfg.get("amazon_s3.bucket_name") or "")
+        self._s3_region_var.set(self._cfg.get("amazon_s3.region") or "ap-south-1")
+        self._s3_access_key_var.set(self._cfg.get("amazon_s3.access_key_id") or "")
+        self._s3_secret_key_var.set(self._cfg.get("amazon_s3.secret_access_key") or "")
+        self._s3_prefix_var.set(self._cfg.get("amazon_s3.folder_prefix") or "notices/")
+        self._s3_mock_var.set(bool(self._cfg.get("amazon_s3.mock_mode", True)))
 
         # Advanced settings
         self._output_folder_var.set(self._cfg.get("settings.output_folder") or ".\\output")
@@ -560,6 +611,12 @@ class SetupTab:
         )
         self._cfg.set("google_drive.upload_folder_id", self._drive_folder_id_var.get().strip())
         self._cfg.set("google_drive.mock_mode", self._drive_mock_var.get())
+        self._cfg.set("amazon_s3.bucket_name", self._s3_bucket_var.get().strip())
+        self._cfg.set("amazon_s3.region", self._s3_region_var.get().strip() or "ap-south-1")
+        self._cfg.set("amazon_s3.access_key_id", self._s3_access_key_var.get().strip())
+        self._cfg.set("amazon_s3.secret_access_key", self._s3_secret_key_var.get().strip())
+        self._cfg.set("amazon_s3.folder_prefix", self._s3_prefix_var.get().strip() or "notices/")
+        self._cfg.set("amazon_s3.mock_mode", self._s3_mock_var.get())
 
         # Advanced settings — validate numerics before saving
         def _int_or(raw: str, fallback: int) -> int:
@@ -654,3 +711,25 @@ class SetupTab:
         )
         status = f"Drive: {msg}" if ok else f"Drive failed: {msg}"
         self._app.after(0, lambda: self._drive_status_var.set(status))
+
+    def _test_s3(self) -> None:
+        """Spawn a background thread to test Amazon S3."""
+        self._s3_status_var.set("Testing S3...")
+        threading.Thread(target=self._do_test_s3, daemon=True).start()
+
+    def _do_test_s3(self) -> None:
+        """Background: S3 readiness check."""
+        from utils.preflight import check_s3_ready
+
+        s3_config = {
+            "bucket_name": self._s3_bucket_var.get().strip(),
+            "region": self._s3_region_var.get().strip() or "ap-south-1",
+            "access_key_id": self._s3_access_key_var.get().strip(),
+            "secret_access_key": self._s3_secret_key_var.get().strip(),
+            "folder_prefix": self._s3_prefix_var.get().strip() or "notices/",
+            "mock_mode": self._s3_mock_var.get(),
+            "public_read": True,
+        }
+        ok, msg = check_s3_ready(s3_config)
+        status = f"S3: {msg}" if ok else f"S3 failed: {msg}"
+        self._app.after(0, lambda: self._s3_status_var.set(status))

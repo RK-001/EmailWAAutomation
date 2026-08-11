@@ -39,7 +39,7 @@ import threading
 import time
 from datetime import datetime
 
-from core.cloud_uploader import DriveUploader
+from core.cloud_uploader import DriveUploader, S3Uploader
 from core.doc_generator import render_document
 from core.email_sender import EmailSender, format_email_content
 from core.excel_reader import read_excel
@@ -304,7 +304,8 @@ class BatchRunner:
 
             start_index = self._checkpoint_mgr.last_generated_index + 1
 
-            # ── Drive uploader ────────────────────────────────────────────────
+            # ── Upload provider (Google Drive or Amazon S3) ──────────────────
+            upload_provider = str(profile.get("upload_provider") or "google_drive").strip()
             drive_cfg = self._cfg.get("google_drive") or {}
             drive_cfg = {
                 **drive_cfg,
@@ -318,20 +319,34 @@ class BatchRunner:
                     drive_cfg.get("oauth_token_json_path", "token.json")
                 ),
             }
+            s3_cfg = self._cfg.get("amazon_s3") or {}
             drive_uploader: DriveUploader | None = None
+            s3_uploader: S3Uploader | None = None
             drive_init_error = ""
-            try:
-                drive_uploader = DriveUploader(drive_cfg)
-            except Exception as exc:
-                drive_init_error = str(exc)
-                self._post_progress(
-                    start_index,
-                    total,
-                    "generate",
-                    f"⚠ Drive disabled for this batch: {exc}",
-                )
+            if upload_provider == "amazon_s3":
+                try:
+                    s3_uploader = S3Uploader(s3_cfg)
+                except Exception as exc:
+                    drive_init_error = str(exc)
+                    self._post_progress(
+                        start_index,
+                        total,
+                        "generate",
+                        f"⚠ Amazon S3 disabled for this batch: {exc}",
+                    )
+            else:
+                try:
+                    drive_uploader = DriveUploader(drive_cfg)
+                except Exception as exc:
+                    drive_init_error = str(exc)
+                    self._post_progress(
+                        start_index,
+                        total,
+                        "generate",
+                        f"⚠ Drive disabled for this batch: {exc}",
+                    )
 
-            # Check Drive readiness (non-blocking warning)
+            # Check uploader readiness (non-blocking warning)
             if drive_uploader is not None and not drive_cfg.get("mock_mode", True):
                 quota_ok, quota_msg = drive_uploader.check_quota()
                 folder_ok, folder_msg = drive_uploader.test_folder_access()
@@ -339,6 +354,10 @@ class BatchRunner:
                     self._post_progress(start_index, total, "generate", f"Drive: {quota_msg}")
                 if not folder_ok:
                     self._post_progress(start_index, total, "generate", f"Drive: {folder_msg}")
+            if s3_uploader is not None and not s3_cfg.get("mock_mode", True):
+                s3_ok, s3_msg = s3_uploader.test_bucket_access()
+                if not s3_ok:
+                    self._post_progress(start_index, total, "generate", f"Amazon S3: {s3_msg}")
 
             # ── Pre-warm template cache ───────────────────────────────────────
             # Load template into memory ONCE before processing rows
@@ -388,6 +407,10 @@ class BatchRunner:
 
                 # Wait if paused
                 self._pause_event.wait()
+                if self._cancel_event.is_set():
+                    self._post_progress(i, total, "generate", "Cancelled by user.")
+                    self._post_complete(generated, cancelled=True)
+                    return
 
                 self._post_progress(
                     i, total, "generate",
@@ -440,12 +463,28 @@ class BatchRunner:
                     )
                     continue
 
-                # ── Upload to Drive ───────────────────────────────────────────
+                # ── Upload PDF to active provider ─────────────────────────────
                 drive_link = ""
                 drive_upload_status = "skipped"
                 drive_upload_error = ""
                 drive_upload_seconds = 0.0
-                if drive_uploader is not None:
+                if s3_uploader is not None:
+                    try:
+                        phase_start = time.perf_counter()
+                        drive_link = s3_uploader.upload_pdf(pdf_path=pdf_path)
+                        drive_upload_seconds = round(time.perf_counter() - phase_start, 3)
+                        drive_upload_status = (
+                            "mock" if s3_cfg.get("mock_mode", True) else "uploaded"
+                        )
+                    except Exception as exc:
+                        drive_upload_seconds = round(time.perf_counter() - phase_start, 3)
+                        drive_upload_status = "failed"
+                        drive_upload_error = str(exc)
+                        self._post_progress(
+                            i, total, "generate",
+                            f"⚠ Row {i+1} Amazon S3 upload failed: {exc}"
+                        )
+                elif drive_uploader is not None:
                     try:
                         phase_start = time.perf_counter()
                         drive_link = drive_uploader.upload_pdf(
@@ -465,7 +504,7 @@ class BatchRunner:
                         )
 
                 # ── Save result ───────────────────────────────────────────────
-                if drive_uploader is None and drive_init_error:
+                if drive_uploader is None and s3_uploader is None and drive_init_error:
                     drive_upload_status = "disabled"
                     drive_upload_error = drive_init_error
 
@@ -538,6 +577,7 @@ class BatchRunner:
             email_sender = EmailSender(gmail_cfg)
 
             profile = self._cfg.get_profile(self._checkpoint_mgr._profile_name) or {}
+            upload_provider = str(profile.get("upload_provider") or "google_drive").strip()
             meta_whatsapp_cfg = _merge_profile_meta_whatsapp_config(
                 self._cfg.get("meta_whatsapp") or {},
                 profile,
@@ -566,6 +606,10 @@ class BatchRunner:
 
                 # Wait if paused
                 self._pause_event.wait()
+                if self._cancel_event.is_set():
+                    self._post_progress(i, total, "send", "Cancelled by user.")
+                    cancelled = True
+                    break
 
                 row_index = row.get("row_index", row.get("index", i))
                 if not is_retry_batch and row_index <= last_sent_index:
@@ -632,6 +676,9 @@ class BatchRunner:
                     if not phone_ok:
                         wa_status = "failed"
                         wa_error = phone_msg
+                    elif _whatsapp_requires_drive_link(profile) and _value_or_na(row.get("drive_link")) == "NA":
+                        wa_status = "failed"
+                        wa_error = "Drive link is required by WhatsApp template but is missing."
                     else:
                         template_params = _build_whatsapp_template_params(profile, row)
                         ok, err = wa_sender.send_notice_notification(
@@ -689,7 +736,7 @@ class BatchRunner:
                 })
 
             # ── Drive cleanup (optional) ──────────────────────────────────────
-            if settings.get("drive_cleanup_enabled", True):
+            if settings.get("drive_cleanup_enabled", True) and upload_provider == "google_drive":
                 drive_cfg = self._cfg.get("google_drive") or {}
                 drive_cfg = {
                     **drive_cfg,
@@ -873,6 +920,14 @@ def _get_whatsapp_template_fields(profile: dict) -> list[str]:
         # Skip empty/invalid entries silently
 
     return normalized_params
+
+
+def _whatsapp_requires_drive_link(profile: dict) -> bool:
+    """True when the active Meta template params include the generated Drive link."""
+    return any(
+        field_name.strip().lower() == "drive_link"
+        for field_name in _get_whatsapp_template_fields(profile)
+    )
 
 
 def _resolve_row_value(row: dict, field_name: str):

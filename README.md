@@ -211,6 +211,137 @@ Legacy service-account setup is still available by setting Drive auth mode to
 `service_account`, selecting the service-account JSON, and sharing the Drive
 folder with that service account as `Editor`.
 
+## Amazon S3 Setup (Detailed)
+
+Use this when specific bank profiles must upload PDF to Amazon instead of
+Google Drive.
+
+Important behavior:
+
+- Profile `upload_provider = amazon_s3` means no Google upload is attempted.
+- The generated outbound link field stays `drive_link` for compatibility.
+- For Amazon profiles, `drive_link` contains the S3 URL.
+
+### 1. Create AWS account
+
+1. Open [AWS Signup](https://aws.amazon.com/)
+2. Click `Create an AWS Account`
+3. Enter account email, password, and AWS account name
+4. Verify email with OTP
+5. Choose account type (`Personal` or `Business`)
+6. Enter billing details (card required by AWS)
+7. Verify phone number with OTP
+8. Select support plan: `Basic (Free)`
+9. Sign in to AWS Console
+
+### 2. Secure root user
+
+1. In AWS Console, open `IAM` -> `Dashboard`
+2. Enable MFA for root user
+3. You can continue with root user for this setup as requested
+
+### 3. Create S3 bucket
+
+1. Open `S3` service
+2. Click `Create bucket`
+3. Bucket name: globally unique, lowercase, e.g. `gk-notice-bank-files-2026`
+4. Region: choose your required region (example `ap-south-1`)
+5. Keep default encryption enabled
+6. Click `Create bucket`
+
+### 4. Enable public-read delivery (for permanent clickable URLs)
+
+This app currently sends permanent WhatsApp links.
+
+1. Open your bucket -> `Permissions`
+2. In `Block public access`, click `Edit`
+3. Uncheck `Block all public access` and confirm
+4. Save changes
+5. In `Bucket policy`, add policy (replace bucket name):
+
+```json
+{
+   "Version": "2012-10-17",
+   "Statement": [
+      {
+         "Sid": "PublicReadForNoticeFiles",
+         "Effect": "Allow",
+         "Principal": "*",
+         "Action": "s3:GetObject",
+         "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/notices/*"
+      }
+   ]
+}
+```
+
+### 5. Add root-level inline policy for S3 access
+
+1. Open account menu (top-right) -> `Security credentials`
+2. Scroll to `Root user` security controls
+3. Open `Policies` / `Permissions` area for root account
+4. Create or attach policy allowing this S3 scope
+5. Use JSON policy (replace bucket name):
+
+```json
+{
+   "Version": "2012-10-17",
+   "Statement": [
+      {
+         "Effect": "Allow",
+         "Action": ["s3:ListBucket"],
+         "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME"
+      },
+      {
+         "Effect": "Allow",
+         "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+         "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/notices/*"
+      }
+   ]
+}
+```
+
+1. Save policy
+
+### 6. Create root access key
+
+1. Open account menu (top-right) -> `Security credentials`
+2. In `Access keys` (root account), click `Create access key`
+3. Confirm warning and create key
+4. Copy `Access key ID` and `Secret access key` securely
+5. Store in password manager (shown only once)
+
+### 7. Configure app Setup tab
+
+In `Setup` -> `AMAZON S3 SETTINGS`:
+
+1. Bucket Name
+2. Region (e.g. `ap-south-1`)
+3. Access Key ID
+4. Secret Access Key
+5. Folder Prefix (default `notices/`)
+6. Keep S3 mock mode ON during first tests
+7. Click `Test S3`
+8. Turn S3 mock mode OFF after successful test
+
+### 8. Enable Amazon only for selected banks
+
+1. Open `Profiles` tab
+2. Select bank profile
+3. Set `Upload Provider` = `amazon_s3`
+4. Save profile
+
+Profiles with `google_drive` continue existing behavior.
+
+### 9. Validate end-to-end behavior
+
+1. Run small batch for one Amazon-enabled profile
+2. In Preview tab, check provider label shows `amazon_s3`
+3. Send one WhatsApp in mock/live as per your process
+4. Confirm WhatsApp link opens S3 PDF
+5. Confirm no Google upload warning appears for that batch
+
+Note: Root access keys are high-risk. Rotate regularly and delete immediately if exposed.
+
 Example folder URL:
 
 ```text
