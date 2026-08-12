@@ -18,7 +18,6 @@ import os
 import smtplib
 import ssl
 import tempfile
-from typing import Callable
 import urllib.error
 import urllib.request
 
@@ -69,69 +68,6 @@ def check_email_capacity(row_count: int, max_per_day: int = 450) -> tuple[bool, 
             "Last rows in excess of limit may be rejected by Gmail."
         )
     return True, ""
-
-
-# ── Google Drive preflight ───────────────────────────────────────────────────
-
-def check_drive_quota(service_account_path: str, folder_id: str) -> tuple[bool, str]:
-    """
-    Check Google Drive available storage quota.
-    Warns if less than 500 MB is free.
-
-    Returns:
-        (True, "")       → sufficient space
-        (False, warning) → low space warning
-    """
-    try:
-        import google_auth_httplib2
-        import httplib2
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-
-        creds = service_account.Credentials.from_service_account_file(
-            service_account_path,
-            scopes=["https://www.googleapis.com/auth/drive"],
-        )
-        ca_bundle = get_merged_ca_bundle_path()
-        http = (
-            httplib2.Http(ca_certs=ca_bundle, timeout=30)
-            if ca_bundle
-            else httplib2.Http(timeout=30)
-        )
-        authed_http = google_auth_httplib2.AuthorizedHttp(creds, http=http)
-        service = build(
-            "drive",
-            "v3",
-            http=authed_http,
-            cache_discovery=False,
-            static_discovery=False,
-        )
-        about = service.about().get(fields="storageQuota").execute()
-        quota = about.get("storageQuota", {})
-
-        limit = int(quota.get("limit", 0))
-        used = int(quota.get("usage", 0))
-        free_mb = (limit - used) // (1024 * 1024)
-
-        if limit == 0:
-            # Unlimited (Google Workspace)
-            return True, ""
-        if free_mb < 500:
-            return False, (
-                f"Google Drive has only {free_mb} MB free. "
-                "Consider cleaning up old files before this batch."
-            )
-        return True, ""
-    except Exception as exc:
-        text = str(exc)
-        lower = text.lower()
-        if "zscaler" in lower or "restricted based on" in lower:
-            return False, (
-                "Google Drive is blocked by your office/network security policy "
-                "(Zscaler). Use a network where Drive is allowed, ask IT to whitelist "
-                "Google Drive / Drive API, or turn Drive mock mode ON for testing."
-            )
-        return False, f"Could not check Drive quota: {exc}"
 
 
 def check_drive_ready(
@@ -300,82 +236,3 @@ def check_folders_writable(output_folder: str, log_folder: str) -> tuple[bool, s
                 except OSError:
                     pass
     return True, ""
-
-
-# ── Full preflight run ───────────────────────────────────────────────────────
-
-def run_preflight(
-    config: dict,
-    profile: dict,
-    row_count: int,
-    on_progress: Callable[[str], None] | None = None,
-) -> list[dict]:
-    """
-    Run all preflight checks and return a list of result dicts.
-
-    Args:
-        config:       Full config dict (from ConfigManager.get_all()).
-        profile:      Active profile dict.
-        row_count:    Number of rows in the Excel batch.
-        on_progress:  Optional callback(message) for UI status updates.
-
-    Returns:
-        List of dicts: [{"check": name, "ok": bool, "message": str}, ...]
-    """
-    results = []
-
-    def _report(check_name: str, ok: bool, message: str) -> None:
-        results.append({"check": check_name, "ok": ok, "message": message})
-        if on_progress:
-            status = "✅" if ok else "⚠️"
-            on_progress(f"{status} {check_name}: {message}" if not ok else f"{status} {check_name}")
-
-    # 1. Gmail auth
-    if on_progress:
-        on_progress("Checking Gmail credentials...")
-    gmail = config.get("gmail", {})
-    ok, msg = check_gmail_auth(gmail.get("sender_email", ""), gmail.get("app_password", ""))
-    _report("Gmail Auth", ok, msg)
-
-    # 2. Email capacity
-    ok, msg = check_email_capacity(row_count, config.get("settings", {}).get("max_emails_per_day", 450))
-    _report("Email Capacity", ok, msg)
-
-    # 3. Template readable
-    ok, msg = check_template_readable(profile.get("template_path", ""))
-    _report("Template File", ok, msg)
-
-    # 4. Folders writable
-    settings = config.get("settings", {})
-    ok, msg = check_folders_writable(
-        settings.get("output_folder", "./output"),
-        settings.get("log_folder", "./logs"),
-    )
-    _report("Output Folders", ok, msg)
-
-    # 5. Google Drive quota (only if not in mock mode)
-    drive_cfg = config.get("google_drive", {})
-    if not drive_cfg.get("mock_mode", True):
-        if on_progress:
-            on_progress("Checking Google Drive...")
-        ok, msg = check_drive_ready(drive_cfg)
-        _report("Google Drive", ok, msg)
-    else:
-        _report("Google Drive", True, "Skipped (mock mode)")
-
-    # 6. Meta WhatsApp API (only if not in mock mode)
-    meta_cfg = config.get("meta_whatsapp", {})
-    if not meta_cfg.get("mock_mode", True):
-        if on_progress:
-            on_progress("Checking Meta WhatsApp API...")
-        ok, msg = check_meta_whatsapp_connection(
-            meta_cfg.get("phone_number_id", ""),
-            meta_cfg.get("access_token", ""),
-            meta_cfg.get("api_version", "v21.0"),
-            meta_cfg.get("disable_ssl_verify", False),
-        )
-        _report("Meta WhatsApp API", ok, msg)
-    else:
-        _report("Meta WhatsApp API", True, "Skipped (mock mode)")
-
-    return results

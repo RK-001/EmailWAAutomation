@@ -14,12 +14,28 @@ dist/NoticeAutomation/*
 !dist/NoticeAutomation/templates/.gitkeep
 logs/
 output/
+*.log
+*.csv
+*.zip
+*.exe
+
+.venv/
+venv/
+env/
+
 
 config.json.bak
 *.tmp
+*.pem
+*.key
+*.p12
+*.pfx
+*.env
+*.env.*
 
 drive_credentials.json
 oauth_credentials.json
+service_account*.json
 client_secret*.json
 token.json
 drive_token.json

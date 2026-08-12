@@ -51,6 +51,9 @@ class EmailSender:
         self._app_password: str = self._normalize_app_password(
             gmail_config.get("app_password", "")
         )
+        # Persistent SMTP connection state (reused across batch)
+        self._smtp_conn = None
+        self._smtp_connected = False
 
     def send(
         self,
@@ -144,8 +147,48 @@ class EmailSender:
         msg.attach(attachment)
         return msg
 
+    def _open_smtp_connection(self) -> None:
+        """Open persistent SMTP connection. Raise exception on auth failure."""
+        context = create_ssl_context()
+        self._smtp_conn = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
+        self._smtp_conn.ehlo()
+        self._smtp_conn.starttls(context=context)
+        self._smtp_conn.login(self._sender_email, self._app_password)
+        self._smtp_connected = True
+
+    def _ensure_smtp_connected(self) -> bool:
+        """Check if connection alive; reconnect if dead. Return True if ready."""
+        if not self._smtp_connected or self._smtp_conn is None:
+            return False
+        try:
+            self._smtp_conn.noop()  # Keep-alive check
+            return True
+        except:
+            self._smtp_connected = False
+            return False
+
+    def close_smtp_connection(self) -> None:
+        """Close persistent SMTP connection."""
+        if self._smtp_conn:
+            try:
+                self._smtp_conn.quit()
+            except:
+                pass
+        self._smtp_connected = False
+        self._smtp_conn = None
+
     def _smtp_send(self, msg: MIMEMultipart, to: str) -> None:
-        """Open an SMTP connection and send the message."""
+        """Send using persistent connection; fallback to per-email on error."""
+        # Try persistent connection first
+        if self._ensure_smtp_connected():
+            try:
+                self._smtp_conn.sendmail(self._sender_email, to, msg.as_string())
+                return
+            except (smtplib.SMTPException, OSError):
+                self._smtp_connected = False
+                # Fall through to fallback
+        
+        # Fallback: Create fresh connection (preserves backward compatibility)
         context = create_ssl_context()
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
             server.ehlo()

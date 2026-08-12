@@ -6,8 +6,8 @@
   "meta_whatsapp": {
     "phone_number_id": "",
     "access_token": "",
-    "template_name": "",
-    "api_version": "v21.0",
+    "template_name": "hello_world",
+    "api_version": "v25.0",
     "template_language": "en",
     "mock_mode": true,
     "disable_ssl_verify": false
@@ -21,6 +21,15 @@
     "auto_delete_days": 30,
     "mock_mode": true
   },
+  "amazon_s3": {
+    "bucket_name": "",
+    "region": "ap-south-1",
+    "access_key_id": "",
+    "secret_access_key": "",
+    "folder_prefix": "notices/",
+    "mock_mode": true,
+    "public_read": true
+  },
   "profiles": {
     "Sample_Profile": {
       "display_name": "Sample Profile (Demo)",
@@ -29,10 +38,7 @@
       "email_subject": "Important Communication - {NAME}",
       "email_body": "Dear {NAME},\n\nPlease find attached an important communication regarding your account {ACCOUNTNO}.\n\nFor any queries, please contact us at the number below.\n\nRegards,\n{FIRM_NAME}",
       "wa_template_params": [
-        "NAME",
-        "ACCOUNTNO",
-        "drive_link",
-        "OFFICER_NO"
+        "drive_link"
       ],
       "template_variables": [
         "ACCOUNTNO",
@@ -51,20 +57,21 @@
         "LAWYER_NAME",
         "NOTICE_DATE"
       ],
-      "required_fields": [
-        "NAME"
-      ],
+      "required_fields": [],
       "column_mapping": {
-        "ACCOUNTNO": "ACCOUNTNO",
-        "AMOUNT": "AMOUNT",
+        "ACCOUNTNO": "ACCOUNT NO",
+        "AMOUNT": "Loan Amount / BOUNCE AMOUNT",
         "BRANCH": "BRANCH",
         "CHEQUE_DATE": "CHEQUE_DATE",
-        "NAME": "NAME",
-        "OFFICER_NO": "OFFICER_NO",
-        "REASON": "REASON",
+        "NAME": "Adv Name",
+        "OFFICER_NO": "OFFICER NO",
+        "REASON": "Product / BOUNCE REASON",
         "EMAILID": "EMAILID",
         "MOBILENO": "MOBILENO"
-      }
+      },
+      "upload_provider": "amazon_s3",
+      "wa_template_name": "",
+      "wa_template_language": ""
     },
     "HDFC_PSS_Notice": {
       "display_name": "HDFC PSS Notice",
@@ -97,7 +104,8 @@
         "MOBILENO": "MOBILENO"
       },
       "wa_template_name": "hellow_world",
-      "wa_template_language": "en_US"
+      "wa_template_language": "en_US",
+      "upload_provider": "google_drive"
     }
   },
   "settings": {
@@ -111,5 +119,5 @@
     "lawyer_name": "",
     "firm_name": ""
   },
-  "_comment": "Factory starter config. Enter real credentials from the Setup tab after first run."
+  "_comment": "Starter config for BulkNoticeAutomation. Keep credentials empty in source copies and enter approved Meta settings before disabling mock mode."
 }

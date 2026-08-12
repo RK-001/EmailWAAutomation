@@ -57,9 +57,9 @@ from utils.validators import normalize_phone, validate_email, validate_phone
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-_EMAIL_DELAY_SEC = 5          # Gmail guidelines: ~5 sec between sends
+_EMAIL_DELAY_SEC = 3          # Reduced from 5s; safe for 20 emails/min
 _WA_DELAY_MIN_SEC = 3         # Min WhatsApp inter-message delay
-_WA_DELAY_MAX_SEC = 5         # Max WhatsApp inter-message delay
+_WA_DELAY_MAX_SEC = 3         # Reduced from 5s; Meta safe at 3s
 _WA_COMPAT_FIELD_ALIASES = {
     "ACCOUNTNO": ("BANK_ACCOUNT_NO",),
     "OFFICER_NO": ("OFFICER_MOBILE",),
@@ -565,16 +565,22 @@ class BatchRunner:
         """
         Background thread: Send Email + WhatsApp for each approved row.
         """
+        email_sender = EmailSender(self._cfg.get("gmail") or {})
         try:
             total = len(approved_rows)
             settings = self._cfg.get("settings") or {}
             firm_name: str = settings.get("firm_name", "Law Firm")
             delay_min: float = settings.get("send_delay_min_sec", 3)
-            delay_max: float = settings.get("send_delay_max_sec", 5)
+            delay_max: float = settings.get("send_delay_max_sec", 3)
 
             # ── Init senders ──────────────────────────────────────────────────
             gmail_cfg = self._cfg.get("gmail") or {}
-            email_sender = EmailSender(gmail_cfg)
+            # Open persistent SMTP connection for batch (fallback to per-email on error)
+            try:
+                email_sender._open_smtp_connection()
+            except (smtplib.SMTPAuthenticationError, Exception):
+                # Continue without persistent connection; fallback per-email in _smtp_send()
+                pass
 
             profile = self._cfg.get_profile(self._checkpoint_mgr._profile_name) or {}
             upload_provider = str(profile.get("upload_provider") or "google_drive").strip()
@@ -665,9 +671,8 @@ class BatchRunner:
                         )
                         email_status = "sent" if ok else "failed"
                         email_error = err
-                        # Delay after email (Gmail rate-limit courtesy)
-                        if ok:
-                            time.sleep(_EMAIL_DELAY_SEC)
+                        # Always delay (success or fail) for Gmail recovery time
+                        time.sleep(_EMAIL_DELAY_SEC)
 
                 # ── Send WhatsApp ─────────────────────────────────────────────
                 if row_send_whatsapp:
@@ -764,6 +769,9 @@ class BatchRunner:
 
         except Exception as exc:
             self._post_error(f"Send stage failed: {exc}")
+        finally:
+            # Close persistent SMTP connection (guaranteed cleanup)
+            email_sender.close_smtp_connection()
 
     # ── Queue helpers ─────────────────────────────────────────────────────────
 
