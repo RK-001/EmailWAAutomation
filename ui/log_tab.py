@@ -47,6 +47,7 @@ _STATUS_COLORS = {
     "sent":    ("#1a7a1a", "#2ecc71"),   # (light-mode, dark-mode) green
     "failed":  ("#b22222", "#e74c3c"),   # red
     "skipped": ("#888888", "#aaaaaa"),   # gray
+    "mock":    ("#7a5a00", "#f39c12"),   # amber -- simulated send, not real
 }
 
 _PAD_X = 10
@@ -115,6 +116,13 @@ class LogTab:
             state="disabled",
         )
         self._retry_btn.pack(side="left")
+
+        self._poll_btn = ctk.CTkButton(
+            top_bar, text="🌐 Check WA Status", width=140,
+            command=self._check_webhook_statuses,
+            state="disabled",
+        )
+        self._poll_btn.pack(side="left", padx=(8, 0))
 
         # ── Progress bar (visible during send) ───────────────────────────────
         self._send_progress = ctk.CTkProgressBar(parent, width=500)
@@ -244,11 +252,13 @@ class LogTab:
             # Hide progress bar after a moment
             self._app.after(3000, self._hide_progress)
             self._retry_btn.configure(state="normal")
+            self._poll_btn.configure(state="normal")
             self._update_summary()
 
         elif msg_type == "error":
             self._send_progress_var.set(f"❌  {message}")
             self._retry_btn.configure(state="normal")
+            self._poll_btn.configure(state="normal")
 
     def _hide_progress(self) -> None:
         self._send_progress.grid_remove()
@@ -293,7 +303,7 @@ class LogTab:
                 color = None
             elif key in ("email_status", "wa_status"):
                 val = entry.get(key, "skipped")
-                text = {"sent": "✅ Sent", "failed": "❌ Failed", "skipped": "— Skip"}.get(val, val)
+                text = {"sent": "✅ Sent", "failed": "❌ Failed", "skipped": "— Skip", "mock": "🟡 Mock"}.get(val, val)
                 colors = _STATUS_COLORS.get(val, _STATUS_COLORS["skipped"])
                 color = colors  # tuple (light, dark)
             elif key == "timestamp":
@@ -493,6 +503,79 @@ class LogTab:
             return
 
         self.start_polling()
+
+    def _check_webhook_statuses(self) -> None:
+        """Poll the Meta Webhook for actual delivery statuses of sent messages."""
+        wamids_to_check = []
+        entry_map = {}
+        for entry in self._entries:
+            if entry.get("wa_status") in ("sent", "delivered", "read"):
+                msg_info = entry.get("wa_error", "")
+                if msg_info.startswith("Message ID: "):
+                    wamid = msg_info.replace("Message ID: ", "").strip()
+                    if wamid:
+                        wamids_to_check.append(wamid)
+                        entry_map[wamid] = entry
+
+        if not wamids_to_check:
+            from tkinter import messagebox
+            messagebox.showinfo("Webhook Check", "No WhatsApp messages found to check status for.")
+            return
+
+        self._poll_btn.configure(state="disabled", text="⏳ Checking...")
+
+        import threading
+        def worker():
+            from core.whatsapp_sender import WhatsAppSender
+            meta_cfg = self._cfg.get("meta_whatsapp") or {}
+            sender = WhatsAppSender(meta_cfg)
+            results = sender.poll_webhook_statuses(wamids_to_check)
+            self._app.after(0, self._on_webhook_results, results, entry_map)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_webhook_results(self, results: dict, entry_map: dict) -> None:
+        """Handle the results of the webhook poll and update the table/log."""
+        self._poll_btn.configure(state="normal", text="🌐 Check WA Status")
+        
+        if not results:
+            from tkinter import messagebox
+            messagebox.showinfo("Webhook Check", "No new status updates found.")
+            return
+            
+        changes = 0
+        from utils.logger import BatchLogger
+        logger = None
+        if self._log_path and os.path.exists(self._log_path):
+            logger = BatchLogger(self._log_path)
+
+        for wamid, result in results.items():
+            entry = entry_map.get(wamid)
+            if not entry:
+                continue
+                
+            new_status = result.get("status", "")
+            if new_status and new_status != entry.get("wa_status"):
+                entry["wa_status"] = new_status
+                if new_status == "failed":
+                    err_code = str(result.get("error_code", ""))
+                    if err_code == "131026":
+                        entry["wa_error"] = "Invalid Number / Not on WhatsApp"
+                    else:
+                        entry["wa_error"] = f"Failed (Code {err_code}): {result.get('error_desc', '')}"
+                
+                if logger:
+                    logger.update_whatsapp_status(
+                        entry.get("row_index", 0),
+                        new_status,
+                        entry.get("wa_error", "")
+                    )
+                changes += 1
+                
+        if changes > 0:
+            self._apply_filter()
+            self._update_summary()
+
 
     @staticmethod
     def _normalize_entry(entry: dict) -> dict:

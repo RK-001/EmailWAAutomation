@@ -691,7 +691,7 @@ class BatchRunner:
                             batch_id=self._batch_id,
                             template_params=template_params,
                         )
-                        wa_status = "sent" if ok else "failed"
+                        wa_status = ("mock" if wa_sender.is_mock else "sent") if ok else "failed"
                         wa_error = err
                         # Random inter-message delay (Meta rate-limit safety)
                         time.sleep(random.uniform(delay_min, delay_max))

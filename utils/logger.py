@@ -74,6 +74,15 @@ class BatchLogger:
             json.dump(self._entries, f, indent=2, ensure_ascii=False)
         atomic_replace(tmp_path, self.log_path)
 
+    def update_whatsapp_status(self, row_index: int, status: str, error: str) -> None:
+        """Update the WhatsApp status of a specific row and flush to disk."""
+        for entry in self._entries:
+            if entry.get("index") == row_index:
+                entry["whatsapp_status"] = status
+                entry["whatsapp_error"] = error
+                self._flush()
+                break
+
     def get_summary(self) -> dict:
         """Return aggregate counts from all logged entries."""
         s = {"total": len(self._entries),

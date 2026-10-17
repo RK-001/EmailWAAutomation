@@ -25,6 +25,7 @@ Meta API reference:
 import json
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from utils.ssl_compat import create_ssl_context
@@ -62,10 +63,16 @@ class WhatsAppSender:
         self._template_language: str = meta_whatsapp_config.get("template_language", "en")
         self._mock_mode: bool = meta_whatsapp_config.get("mock_mode", True) or not self._access_token
         self._disable_ssl_verify: bool = meta_whatsapp_config.get("disable_ssl_verify", False)
+        self._webhook_url: str = meta_whatsapp_config.get("webhook_url", "")
         self._firm_name: str = firm_name or "Law Firm"
         
         # Build API URL
         self._api_url = f"https://graph.facebook.com/{self._api_version}/{self._phone_number_id}/messages"
+
+    @property
+    def is_mock(self) -> bool:
+        """True when running in mock mode — no real API call is made."""
+        return self._mock_mode
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -103,6 +110,40 @@ class WhatsAppSender:
             phone=phone_e164,
             template_params=resolved_template_params,
         )
+
+    def poll_webhook_statuses(self, wamids: list[str]) -> dict:
+        """
+        Poll the configured Google Apps Script Webhook URL for the actual delivery statuses.
+
+        Args:
+            wamids: List of WhatsApp Message IDs to check.
+
+        Returns:
+            Dictionary mapping wamid to its status object:
+            {"wamid.xxx": {"status": "failed", "error_code": "131026", "error_desc": "..."}}
+        """
+        if self._mock_mode or not self._webhook_url or not wamids:
+            return {}
+
+        # Filter out empty or mock IDs
+        valid_wamids = [w for w in wamids if w and w.startswith("wamid.")]
+        if not valid_wamids:
+            return {}
+
+        query_string = urllib.parse.urlencode({"wamids": ",".join(valid_wamids)})
+        url = f"{self._webhook_url}?{query_string}"
+
+        try:
+            req = urllib.request.Request(url, method="GET")
+            ctx = create_ssl_context(disable_verify=self._disable_ssl_verify)
+            with urllib.request.urlopen(req, context=ctx, timeout=15) as response:
+                if response.status == 200:
+                    raw_body = response.read().decode("utf-8")
+                    return json.loads(raw_body)
+        except Exception as exc:
+            print(f"[Webhook Polling Error] Failed to fetch statuses: {exc}")
+        
+        return {}
 
     # ── Internal ─────────────────────────────────────────────────────────────
 

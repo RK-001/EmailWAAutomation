@@ -6,6 +6,16 @@ All validators return (is_valid: bool, error_message: str).
 """
 
 import re
+try:
+    import dns.resolver
+    _HAS_DNS = True
+    _resolver = dns.resolver.Resolver()
+    _resolver.lifetime = 3.0
+    _resolver.timeout = 2.0
+except Exception:
+    dns = None
+    _HAS_DNS = False
+    _resolver = None
 from docxtpl import DocxTemplate
 
 
@@ -55,9 +65,52 @@ _EMAIL_RE = re.compile(
 )
 
 
+_DOMAIN_MX_CACHE: dict[str, tuple[bool, str]] = {}
+
+
+def _check_domain_mx(domain: str) -> tuple[bool, str]:
+    """
+    Check MX (Mail Exchange) records for a domain with caching and timeout.
+    Falls back to A-record lookup per RFC 5321 if no MX is defined.
+    """
+    if not _HAS_DNS or dns is None:
+        return True, ""
+
+    domain_clean = domain.lower().strip()
+    if domain_clean in _DOMAIN_MX_CACHE:
+        return _DOMAIN_MX_CACHE[domain_clean]
+
+    try:
+        resolver = _resolver or dns.resolver.Resolver()
+        records = resolver.resolve(domain_clean, "MX")
+        if not records:
+            res = (False, f"Invalid email domain '{domain}': No mail servers found.")
+        else:
+            res = (True, "")
+    except dns.resolver.NXDOMAIN:
+        res = (False, f"Invalid email domain '{domain}': Domain does not exist.")
+    except dns.resolver.NoAnswer:
+        # RFC 5321: If MX records are absent, mailers fall back to domain's A record
+        try:
+            a_records = resolver.resolve(domain_clean, "A")
+            if a_records:
+                res = (True, "")
+            else:
+                res = (False, f"Invalid email domain '{domain}': Domain exists but has no mail servers configured.")
+        except Exception:
+            res = (False, f"Invalid email domain '{domain}': Domain exists but has no mail servers configured.")
+    except Exception as exc:
+        # Network timeout or local DNS issue: don't block send attempt, log and proceed
+        print(f"[Email Validator] DNS check warning for '{domain}': {exc}")
+        res = (True, "")
+
+    _DOMAIN_MX_CACHE[domain_clean] = res
+    return res
+
+
 def validate_email(email: str) -> tuple[bool, str]:
     """
-    Validate an email address (basic format check).
+    Validate an email address (format check and DNS MX check).
 
     Returns:
         (True, "")        → valid
@@ -70,7 +123,9 @@ def validate_email(email: str) -> tuple[bool, str]:
         return False, f"Invalid email: consecutive dots in '{email}'."
     if not _EMAIL_RE.match(email):
         return False, f"Invalid email format: '{email}'."
-    return True, ""
+
+    domain = email.split("@")[1]
+    return _check_domain_mx(domain)
 
 
 # ---------------------------------------------------------------------------

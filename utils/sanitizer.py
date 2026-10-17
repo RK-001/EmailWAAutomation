@@ -4,20 +4,20 @@ utils/sanitizer.py
 Sanitizes Excel row data before passing it to docxtpl.
 
 Two-step safety:
-  1. Convert None/empty values to "NA"
+  1. Convert None/empty values to "" (blank — keeps document fields empty)
   2. Escape XML special chars: & < >
 
 All values are cast to str before escaping so numeric/date cells are safe.
 """
 
 
-def sanitize_context(row_dict: dict, blank_value: str = "NA") -> dict:
+def sanitize_context(row_dict: dict, blank_value: str = "") -> dict:
     """
     Prepare a row dict for safe docxtpl rendering.
 
     Args:
         row_dict: Raw row from excel_reader.
-        blank_value: Value used when a mapped Excel cell is blank.
+        blank_value: Value used when a mapped Excel cell is blank (default: "" keeps it empty).
 
     Returns:
         New dict with all values as XML-safe strings.
