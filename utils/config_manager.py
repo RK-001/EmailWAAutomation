@@ -36,6 +36,7 @@ _DEFAULT_CONFIG: dict = {
         "template_language": "en",
         "mock_mode": True,
         "disable_ssl_verify": False,
+        "webhook_url": "",
     },
     "google_drive": {
         "auth_mode": "oauth_user",

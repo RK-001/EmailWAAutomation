@@ -10,7 +10,8 @@
     "api_version": "v25.0",
     "template_language": "en",
     "mock_mode": true,
-    "disable_ssl_verify": false
+    "disable_ssl_verify": false,
+    "webhook_url": ""
   },
   "google_drive": {
     "auth_mode": "oauth_user",
