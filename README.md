@@ -437,9 +437,4 @@ dist\NoticeAutomation\
 ```
 
 
-curl.exe -s -X POST "https://graph.facebook.com/v21.0/1232251483295161/messages" -H "Authorization: Bearer EAANlJNWejdMBRwQyIbGSHwIjVsp8l8DCzZBIZADn3yIRYvEXs7yg2pgs1hafoBh6TqyE3pjfRZACpGiSZAFsh3ZBnugxkEsIa2GS9aR0G5fTLu0ltqInYyVPtbomPXZCxKJKgpnxRu2s3FJKhuQeYgkAnJuhSSH884lY2EXTqARZBOPHF43nPEpwtZAh0LJn7GM9VwZDZD" -H "Content-Type: application/json" -d "{\"messaging_product\":\"whatsapp\",\"recipient_type\":\"individual\",\"to\":\"910000000000\",\"type\":\"template\",\"template\":{\"name\":\"hello_world\",\"language\":{\"code\":\"en_US\"}}}"
-
-https://script.google.com/macros/s/AKfycbwgJv3M1__ORywX_5LSjTd9Z4KMrS2hSY9kR0LXBFPKh9Tk8IsgHM7S9j0ngBG5sF1Y/exec
-deploymnet id - AKfycbwgJv3M1__ORywX_5LSjTd9Z4KMrS2hSY9kR0LXBFPKh9Tk8IsgHM7S9j0ngBG5sF1Y
-
 verify token wa - gk12wagk23
