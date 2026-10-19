@@ -19,9 +19,14 @@ Security note:
 """
 
 import os
+import time
 import uuid
 
+from utils.cryptography_compat import patch_cryptography
 from utils.ssl_compat import get_merged_ca_bundle_path
+
+# Ensure cryptography ML-DSA bindings are safely patched before any Google Auth import
+patch_cryptography()
 
 _DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 _MOCK_URL_PREFIX = "https://drive.google.com/mock/"
@@ -376,6 +381,12 @@ class DriveUploader:
         if "timed out" in lower or "winerror 10060" in lower:
             return f"{prefix}: Google Drive API connection timed out. Check internet/proxy/firewall access."
 
+        if "mldsa" in lower or "mldshmuhasher" in lower or "mldsamuhasher" in lower:
+            return (
+                f"{prefix}: Cryptographic compatibility error. Please restart the app with the latest update, "
+                "or switch Profile Upload Provider to Amazon S3."
+            )
+
         return f"{prefix}: {text}"
 
 
@@ -396,7 +407,7 @@ class S3Uploader:
             self._client = self._build_client()
 
     def upload_pdf(self, pdf_path: str, display_name: str | None = None) -> str:
-        """Upload a PDF to Amazon S3 and return a clickable URL."""
+        """Upload a PDF to Amazon S3 with retries and return a clickable URL."""
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF not found for upload: {pdf_path}")
 
@@ -408,29 +419,38 @@ class S3Uploader:
         if self._public_read:
             extra_args["ACL"] = "public-read"
 
-        try:
-            # Some modern buckets disable ACLs (Object Ownership enforced).
-            # In that case, retry without ACL and rely on bucket policy for public read.
+        max_attempts = 3
+        last_error = None
+
+        for attempt in range(1, max_attempts + 1):
             try:
-                self._client.upload_file(
-                    Filename=pdf_path,
-                    Bucket=self._bucket_name,
-                    Key=object_key,
-                    ExtraArgs=extra_args,
-                )
-            except Exception as exc:
-                if self._public_read and self._is_acl_not_supported(exc):
+                # Some modern buckets disable ACLs (Object Ownership enforced).
+                # In that case, retry without ACL and rely on bucket policy for public read.
+                try:
                     self._client.upload_file(
                         Filename=pdf_path,
                         Bucket=self._bucket_name,
                         Key=object_key,
-                        ExtraArgs={"ContentType": "application/pdf"},
+                        ExtraArgs=extra_args,
                     )
+                except Exception as exc:
+                    if self._public_read and self._is_acl_not_supported(exc):
+                        self._client.upload_file(
+                            Filename=pdf_path,
+                            Bucket=self._bucket_name,
+                            Key=object_key,
+                            ExtraArgs={"ContentType": "application/pdf"},
+                        )
+                    else:
+                        raise
+                return self._build_public_url(object_key)
+            except Exception as exc:
+                last_error = exc
+                if attempt < max_attempts:
+                    # Exponential backoff for intermittent network / DNS drops
+                    time.sleep(attempt * 1.5)
                 else:
-                    raise
-            return self._build_public_url(object_key)
-        except Exception as exc:
-            raise RuntimeError(f"Amazon S3 upload failed: {exc}") from exc
+                    raise RuntimeError(f"Amazon S3 upload failed after {max_attempts} attempts: {last_error}") from last_error
 
     def test_bucket_access(self) -> tuple[bool, str]:
         """Check bucket access with current credentials."""
@@ -454,8 +474,9 @@ class S3Uploader:
             return False, f"Could not access S3 bucket: {exc}"
 
     def _build_client(self):
-        """Build boto3 S3 client lazily to keep startup lightweight."""
+        """Build boto3 S3 client lazily with robust retry and timeout configs."""
         import boto3
+        from botocore.config import Config
 
         if not self._bucket_name:
             raise ValueError("Amazon S3 bucket name is required.")
@@ -464,11 +485,21 @@ class S3Uploader:
         if not self._access_key_id or not self._secret_access_key:
             raise ValueError("Amazon S3 credentials are required.")
 
+        s3_config = Config(
+            retries={
+                "max_attempts": 5,
+                "mode": "standard",
+            },
+            connect_timeout=15,
+            read_timeout=60,
+        )
+
         return boto3.client(
             "s3",
             region_name=self._region,
             aws_access_key_id=self._access_key_id,
             aws_secret_access_key=self._secret_access_key,
+            config=s3_config,
         )
 
     def _build_object_key(self, display_name: str | None) -> str:

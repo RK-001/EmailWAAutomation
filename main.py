@@ -17,6 +17,12 @@ Must be invoked as:
 import ctypes
 import sys
 
+from utils.cryptography_compat import isolate_environment_if_frozen, patch_cryptography
+
+# Isolate host environment if running as a frozen PyInstaller bundle
+isolate_environment_if_frozen()
+patch_cryptography()
+
 
 def _set_dpi_awareness() -> None:
     """

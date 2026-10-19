@@ -1,4 +1,4 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 # NoticeAutomation.spec — PyInstaller build spec
 # Build: pyinstaller NoticeAutomation.spec --noconfirm --clean
 
@@ -42,6 +42,7 @@ a = Analysis(
     [MAIN_PY],
     pathex=[SPEC_DIR],
     hookspath=[os.path.join(SPEC_DIR, "hooks")],
+    runtime_hooks=[os.path.join(SPEC_DIR, "hooks", "rthook_cryptography.py")],
     datas=datas,
     hiddenimports=hidden_imports,
     excludes=[
